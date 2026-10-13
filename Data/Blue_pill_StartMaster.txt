@@ -1,0 +1,98 @@
+================================================================================
+GUÍA DE FLUJO DE TRABAJO ESTÁNDAR: STM32 BLUE PILL (CLON)
+================================================================================
+
+--------------------------------------------------------------------------------
+FASE A: CONFIGURACIÓN EN STM32CubeMX
+--------------------------------------------------------------------------------
+1. Iniciar Proyecto:
+   - File -> New Project.
+   - En "Commercial Part Number" ingresar y seleccionar: STM32F103C8Tx.
+   - Presionar "Start Project".
+
+2. Configuración obligatoria del Sistema (SIEMPRE):
+   - System Core -> SYS:
+     * Debug: Serial Wire (OBLIGATORIO para no bloquear el ST-Link).
+     * Timebase Source: SysTick.
+   - System Core -> RCC:
+     * High Speed Clock (HSE): Crystal/Ceramic Resonator (cristal de 8 MHz).
+
+3. Configuración de Relojes (Clock Configuration):
+   - En la pestaña superior "Clock Configuration":
+     * PLL Source Mux: seleccionar HSE.
+     * Ajustar la frecuencia de la CPU a 72 MHz (ajusta APB1 a 36 MHz).
+
+4. Configuración de Periféricos del Proyecto:
+   - Configurar los pines y periféricos requeridos (GPIOs, Timers, ADC, UART, CAN, etc.).
+
+5. Project Manager:
+   - Pestaña "Project":
+     * Project Name: Asignar nombre (sin espacios ni caracteres especiales).
+     * Project Location: Carpeta de destino (ruta sin tildes ni caracteres especiales).
+     * Toolchain / IDE: Seleccionar "STM32CubeIDE".
+   - Pestaña lateral "Code Generator":
+     * Tildar: "Generate peripheral initialization as a pair of '.c/.h' files per peripheral".
+
+6. Generación de Código:
+   - Presionar el botón "GENERATE CODE" (arriba a la derecha).
+   - Al terminar, presionar "Close".
+
+
+--------------------------------------------------------------------------------
+FASE B: DESARROLLO Y COMPILACIÓN EN STM32CubeIDE 2.x
+--------------------------------------------------------------------------------
+1. Importación:
+   - Abrir STM32CubeIDE 2.x.
+   - File -> Import... -> Import STM32 Project -> "STM32CubeMX/STM32CubeIDE Project" -> Next.
+   - En "Directory", buscar y seleccionar la carpeta del proyecto generado en la Fase A.
+   - Verificar que quede tildada la casilla del proyecto en la lista y presionar "Finish".
+
+2. Edición de Código:
+   - En el panel "Project Explorer" (izquierda), desplegar: Core -> Src -> main.c.
+   - REGLA DE ORO: Escribir el código propio ÚNICAMENTE dentro de los bloques de usuario:
+     /* USER CODE BEGIN ... */
+     ... tu codigo aqui ...
+     /* USER CODE END ... */
+     (El código fuera de estas marcas se borrará si se regenera el proyecto en CubeMX).
+
+3. Compilación:
+   - Guardar cambios (Ctrl + S).
+   - Presionar el ícono del martillo (Build) o usar el atajo Ctrl + B.
+   - Verificar en la consola que finalice con: "0 errors, 0 warnings".
+
+
+--------------------------------------------------------------------------------
+FASE C: FLASH Y DEPURACIÓN EN STM32CubeIDE 1.1.0 (PARCHE CLON)
+--------------------------------------------------------------------------------
+* El parche en el archivo "stm32f1x.cfg" (reemplazando _CPUTAPID 0x1ba01477 por 0x2ba01477)
+  se realiza una única vez en la instalación de STM32CubeIDE 1.1.0 y queda permanente.
+
+1. Conexión de Hardware:
+   - Jumpers amarillos de la Blue Pill: BOOT0 en 0 y BOOT1 en 0.
+   - Conexiones SWD (Blue Pill a ST-Link V2):
+     * 3.3V  -> 3.3V
+     * GND   -> GND
+     * DIO   -> SWDIO (PA13)
+     * CLK   -> SWCLK (PA14)
+   - Conectar el ST-Link V2 al puerto USB de la PC.
+
+2. Carga del Proyecto en STM32CubeIDE 1.1.0:
+   - Abrir STM32CubeIDE 1.1.0 (usar el mismo workspace o importar el proyecto).
+   - Si advierte incompatibilidad de versión de workspace, seleccionar "Continue".
+
+3. Configuración del Debugger:
+   - Ir al menú: Run -> Debug Configurations...
+   - En la columna izquierda, dentro de "STM32 Cortex-M C/C++ Application", seleccionar
+     la configuración del proyecto (o hacer doble clic para crearla si no existe).
+   - Pestaña "Debugger":
+     * Debug probe: Cambiar a "ST-LINK (OpenOCD)".
+     * Interface: SWD.
+   - Presionar "Apply" y luego "Debug".
+
+4. Ejecución:
+   - Si aparece el cuadro de diálogo "Confirm Perspective Switch", presionar "Switch".
+   - El microcontrolador queda pausado en la primera línea de main().
+   - Presionar F8 (o el ícono verde "Resume/Play") para correr el código.
+   - Para desconectar de forma segura: presionar el botón rojo "Terminate" (cuadrado)
+     y luego desenchufar el ST-Link del puerto USB.
+================================================================================
