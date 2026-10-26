@@ -1,0 +1,6 @@
+../Core/Src/main.c:101:9:CAN_SendMessage	5
+../Core/Src/main.c:144:6:Indicate_CAN_Result	4
+../Core/Src/main.c:169:9:Button_Edge_Pressed	6
+../Core/Src/main.c:201:5:main	11
+../Core/Src/main.c:314:6:SystemClock_Config	3
+../Core/Src/main.c:354:6:Error_Handler	1

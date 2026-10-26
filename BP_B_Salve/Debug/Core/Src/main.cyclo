@@ -1,0 +1,9 @@
+../Core/Src/main.c:140:6:Motor_SetSpeed	9
+../Core/Src/main.c:192:6:Encoder_Update	1
+../Core/Src/main.c:203:9:Button_Pressed	5
+../Core/Src/main.c:226:6:CAN_Filter_Config	2
+../Core/Src/main.c:250:6:CAN_ProcessRxMessages	7
+../Core/Src/main.c:282:6:HAL_CAN_RxFifo0MsgPendingCallback	1
+../Core/Src/main.c:293:5:main	31
+../Core/Src/main.c:572:6:SystemClock_Config	3
+../Core/Src/main.c:612:6:Error_Handler	1
