@@ -1,8 +1,9 @@
-../Core/Src/main.c:135:6:Motor_SetSpeed	9
-../Core/Src/main.c:187:6:Encoder_Update	1
-../Core/Src/main.c:198:6:CAN_Filter_Config	2
-../Core/Src/main.c:224:6:CAN_ProcessRxMessages	12
-../Core/Src/main.c:279:6:HAL_CAN_RxFifo0MsgPendingCallback	1
-../Core/Src/main.c:290:5:main	31
-../Core/Src/main.c:569:6:SystemClock_Config	3
-../Core/Src/main.c:609:6:Error_Handler	1
+../Core/Src/main.c:141:6:Motor_SetSpeed	9
+../Core/Src/main.c:193:6:Encoder_Update	1
+../Core/Src/main.c:204:6:CAN_Filter_Config	2
+../Core/Src/main.c:230:6:CAN_ProcessRxMessages	20
+../Core/Src/main.c:287:6:HAL_CAN_RxFifo0MsgPendingCallback	1
+../Core/Src/main.c:296:6:CAN_SendTelemetry	2
+../Core/Src/main.c:329:5:main	34
+../Core/Src/main.c:636:6:SystemClock_Config	3
+../Core/Src/main.c:676:6:Error_Handler	1

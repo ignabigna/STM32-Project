@@ -94,6 +94,7 @@ volatile SystemState_t current_state = STATE_IDLE;
 volatile int32_t total_encoder_ticks = 0;   /* Posición acumulada en 32 bits (anti-desbordamiento) */
 volatile int16_t last_timer_cnt = 0;        /* Última lectura directa de CNT (16 bits) */
 volatile int32_t home_position = 0;         /* Posición de referencia fijada */
+volatile int32_t target_position = 0;       /* Posición objetivo para Ir a Home o giros por ángulo */
 
 /* Variables para el barrido oscilante por PPR */
 volatile ScanPhase_t scan_phase = SCAN_PHASE_FORWARD;
@@ -113,6 +114,10 @@ volatile uint8_t can_btn1_flag = 0;
 volatile uint8_t can_btn2_flag = 0;
 volatile uint8_t can_btn3_flag = 0;
 volatile uint8_t can_btn4_flag = 0;
+volatile int32_t can_step_ticks = 0;        /* Pasos relativos solicitados por CAN (+ o - ticks) */
+
+/* Temporizador no bloqueante para envio de telemetria CAN (Fase B) */
+uint32_t last_telemetry_tick = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -122,6 +127,7 @@ void Motor_SetSpeed(int16_t speed);
 void Encoder_Update(void);
 void CAN_Filter_Config(void);
 void CAN_ProcessRxMessages(void);
+void CAN_SendTelemetry(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -232,24 +238,26 @@ void CAN_ProcessRxMessages(void)
     {
       if (rxHeader.DLC >= 1)
       {
-        /* 1. Comandos de los botones de motor/homing (ID = 0x010) */
+        /* 1. Comandos de los botones de motor/homing y giros por ángulo (ID = 0x010) */
         if (rxHeader.StdId == 0x010)
         {
-          if (rxData[0] == 0x01)
+          switch (rxData[0])
           {
-            can_btn1_flag = 1;
-          }
-          else if (rxData[0] == 0x02)
-          {
-            can_btn2_flag = 1;
-          }
-          else if (rxData[0] == 0x03)
-          {
-            can_btn3_flag = 1;
-          }
-          else if (rxData[0] == 0x04)
-          {
-            can_btn4_flag = 1;
+            case 0x01: can_btn1_flag = 1; break;
+            case 0x02: can_btn2_flag = 1; break;
+            case 0x03: can_btn3_flag = 1; break;
+            case 0x04: can_btn4_flag = 1; break;
+            /* Giros relativos en sentido positivo (+30°, +90°, +180°, +360°) */
+            case 0x05: can_step_ticks =  (30  * TICKS_PER_GEAR_REV) / 360; break; /* +200 ticks */
+            case 0x06: can_step_ticks =  (90  * TICKS_PER_GEAR_REV) / 360; break; /* +600 ticks */
+            case 0x07: can_step_ticks =  (180 * TICKS_PER_GEAR_REV) / 360; break; /* +1200 ticks */
+            case 0x08: can_step_ticks =  (360 * TICKS_PER_GEAR_REV) / 360; break; /* +2400 ticks */
+            /* Giros relativos en sentido negativo (-30°, -90°, -180°, -360°) */
+            case 0x09: can_step_ticks = -(30  * TICKS_PER_GEAR_REV) / 360; break; /* -200 ticks */
+            case 0x0A: can_step_ticks = -(90  * TICKS_PER_GEAR_REV) / 360; break; /* -600 ticks */
+            case 0x0B: can_step_ticks = -(180 * TICKS_PER_GEAR_REV) / 360; break; /* -1200 ticks */
+            case 0x0C: can_step_ticks = -(360 * TICKS_PER_GEAR_REV) / 360; break; /* -2400 ticks */
+            default: break;
           }
         }
         /* 2. Comandos del LED en PB0 (ID = 0x020) */
@@ -280,6 +288,37 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcanInstance)
 {
   UNUSED(hcanInstance);
   CAN_ProcessRxMessages();
+}
+
+/**
+  * @brief  Transmite periodicamente la telemetria (posicion y estado) por CAN a BP_A (StdId = 0x030)
+  */
+void CAN_SendTelemetry(void)
+{
+  CAN_TxHeaderTypeDef txHeader;
+  uint8_t txData[5];
+  uint32_t txMailbox;
+
+  if (HAL_CAN_GetTxMailboxesFreeLevel(&hcan) == 0)
+  {
+    HAL_CAN_AbortTxRequest(&hcan, CAN_TX_MAILBOX0 | CAN_TX_MAILBOX1 | CAN_TX_MAILBOX2);
+  }
+
+  txHeader.StdId = 0x030;
+  txHeader.ExtId = 0x01;
+  txHeader.RTR = CAN_RTR_DATA;
+  txHeader.IDE = CAN_ID_STD;
+  txHeader.DLC = 5;
+  txHeader.TransmitGlobalTime = DISABLE;
+
+  int32_t pos = total_encoder_ticks;
+  txData[0] = (uint8_t)(pos & 0xFF);
+  txData[1] = (uint8_t)((pos >> 8) & 0xFF);
+  txData[2] = (uint8_t)((pos >> 16) & 0xFF);
+  txData[3] = (uint8_t)((pos >> 24) & 0xFF);
+  txData[4] = (uint8_t)current_state;
+
+  HAL_CAN_AddTxMessage(&hcan, &txHeader, txData, &txMailbox);
 }
 /* USER CODE END 0 */
 
@@ -342,6 +381,7 @@ int main(void)
   last_timer_cnt = 0;
   total_encoder_ticks = 0;
   home_position = 0;
+  target_position = 0;
   current_state = STATE_IDLE;
   /* USER CODE END 2 */
 
@@ -360,6 +400,7 @@ int main(void)
     uint8_t btn2 = can_btn2_flag; can_btn2_flag = 0;
     uint8_t btn3 = can_btn3_flag; can_btn3_flag = 0;
     uint8_t btn4 = can_btn4_flag; can_btn4_flag = 0;
+    int32_t step_req = can_step_ticks; can_step_ticks = 0;
 
     /* 3. PARADA DE EMERGENCIA / STOP (BTN4 tiene prioridad sobre cualquier estado) */
     if (btn4)
@@ -398,6 +439,7 @@ int main(void)
         {
           total_encoder_ticks = 0;
           home_position = 0;
+          target_position = 0;
           __HAL_TIM_SET_COUNTER(&htim2, 0);
           last_timer_cnt = 0;
           current_state = STATE_HOMING_LOCKED;
@@ -405,7 +447,16 @@ int main(void)
         /* BTN3: Regresar a la posición de Home memorizada */
         else if (btn3)
         {
-          go_home_initial_error = abs(home_position - total_encoder_ticks);
+          target_position = home_position;
+          go_home_initial_error = abs(target_position - total_encoder_ticks);
+          go_home_start_time = HAL_GetTick();
+          current_state = STATE_GO_TO_HOME;
+        }
+        /* Giro angular relativo por comando remoto (±30°, ±90°, ±180°, ±360°) */
+        else if (step_req != 0)
+        {
+          target_position = total_encoder_ticks + step_req;
+          go_home_initial_error = abs(target_position - total_encoder_ticks);
           go_home_start_time = HAL_GetTick();
           current_state = STATE_GO_TO_HOME;
         }
@@ -468,6 +519,7 @@ int main(void)
           /* Fijar el origen de coordenadas exactamente en este punto */
           total_encoder_ticks = 0;
           home_position = 0;
+          target_position = 0;
           __HAL_TIM_SET_COUNTER(&htim2, 0);
           last_timer_cnt = 0;
 
@@ -488,8 +540,16 @@ int main(void)
         HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
 
         {
-          /* Error de posición respecto al origen fijado (0) */
-          int32_t error = home_position - total_encoder_ticks;
+          /* Si llega un nuevo paso angular relativo mientras posiciona, acumular objetivo */
+          if (step_req != 0)
+          {
+            target_position += step_req;
+            go_home_initial_error = abs(target_position - total_encoder_ticks);
+            go_home_start_time = HAL_GetTick();
+          }
+
+          /* Error de posición respecto al objetivo (Home = 0 o ángulo relativo) */
+          int32_t error = target_position - total_encoder_ticks;
           int32_t abs_err = abs(error);
 
           /* 1. Verificación de llegada dentro de la zona muerta */
@@ -552,6 +612,13 @@ int main(void)
       default:
         current_state = STATE_IDLE;
         break;
+    }
+
+    /* 4. Transmitir telemetria de posicion y estado hacia BP_A (cada 50 ms / 20 Hz) */
+    if ((HAL_GetTick() - last_telemetry_tick) >= 50)
+    {
+      last_telemetry_tick = HAL_GetTick();
+      CAN_SendTelemetry();
     }
 
     HAL_Delay(5);

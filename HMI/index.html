@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HMI Banco de Pruebas · BP_A_Master</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ===================== BARRA SUPERIOR ===================== -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-logo">◎</div>
+      <div>
+        <h1>Banco de Pruebas · Motor CAN</h1>
+        <span class="subtitle">BP_A_Master_F · STM32F103 · SWD / OpenOCD</span>
+      </div>
+    </div>
+
+    <div class="status-group">
+      <div class="pill" id="link-pill" title="Conexión HMI ↔ puente Python (WebSocket)">
+        <span class="dot"></span><span class="pill-label">Puente</span><span class="pill-value" id="link-text">Desconectado</span>
+      </div>
+      <div class="pill" id="target-pill" title="Estado del núcleo reportado por OpenOCD">
+        <span class="dot"></span><span class="pill-label">Micro</span><span class="pill-value" id="target-text">—</span>
+      </div>
+      <div class="pill" id="can-pill" title="Frecuencia de tramas de telemetría CAN 0x030 recibidas desde la placa B">
+        <span class="dot"></span><span class="pill-label">CAN 0x030</span><span class="pill-value" id="can-text">—</span>
+      </div>
+    </div>
+
+    <div class="conn-controls">
+      <select id="source-select" title="Fuente de datos">
+        <option value="bridge">Puente Python</option>
+        <option value="demo">Simulador (demo)</option>
+      </select>
+      <input id="ws-url" type="text" spellcheck="false" title="URL WebSocket del puente">
+      <button id="btn-connect" class="btn">Conectar</button>
+      <button id="btn-settings" class="btn icon" title="Ajustes">⚙</button>
+    </div>
+  </header>
+
+  <!-- ===================== AVISOS ===================== -->
+  <div id="halt-banner" class="banner halt hidden">
+    ⏸ <strong>Micro en pausa (breakpoint)</strong> — los valores mostrados están congelados.
+    Las escrituras se aplican en RAM, pero el firmware las procesará recién al reanudar.
+  </div>
+  <div id="can-banner" class="banner warn hidden">
+    ⚠ <strong>Sin telemetría CAN</strong> — el micro está corriendo, pero <code>telemetry_counter</code> no aumenta.
+    Revisá la placa B, el bus CAN o la terminación.
+  </div>
+  <div id="stale-banner" class="banner warn hidden">
+    ⚠ <strong>Sin datos del puente</strong> — la conexión WebSocket está abierta, pero no llegan muestras.
+    ¿OpenOCD está corriendo?
+  </div>
+
+  <!-- ===================== CONTENIDO ===================== -->
+  <main class="grid">
+
+    <!-- KPIs -->
+    <section class="card kpi">
+      <div class="kpi-label">Posición <span class="var-name">live_position</span></div>
+      <div class="kpi-value mono" id="kpi-pos">—</div>
+      <div class="kpi-ticks mono" id="kpi-ticks">Ticks: —</div>
+      <div class="kpi-sub" id="kpi-pos-sub">grados del engranaje</div>
+      <div class="kpi-sub mono" id="kpi-vel">Vel: —</div>
+    </section>
+
+    <section class="card kpi">
+      <div class="kpi-label">Estado motor <span class="var-name">live_motor_state</span></div>
+      <div class="kpi-value"><span class="state-badge" id="kpi-state">—</span></div>
+      <div class="kpi-sub" id="kpi-state-desc">&nbsp;</div>
+    </section>
+
+    <section class="card kpi">
+      <div class="kpi-label">Modo <span class="var-name">system_mode</span></div>
+      <div class="kpi-value" id="kpi-mode">—</div>
+      <div class="kpi-sub" id="kpi-mode-sub">&nbsp;</div>
+    </section>
+
+    <section class="card kpi">
+      <div class="kpi-label">Telemetría <span class="var-name">telemetry_counter</span></div>
+      <div class="kpi-value mono" id="kpi-counter">—</div>
+      <div class="kpi-sub mono" id="kpi-counter-sub">&nbsp;</div>
+    </section>
+
+    <!-- GRÁFICO -->
+    <section class="card chart-card">
+      <div class="card-head">
+        <h2>Posición vs. tiempo</h2>
+        <div class="legend" id="chart-legend"></div>
+        <div class="card-tools">
+          <select id="chart-window" title="Ventana de tiempo">
+            <option value="10">10 s</option>
+            <option value="30">30 s</option>
+            <option value="60">60 s</option>
+            <option value="120">120 s</option>
+          </select>
+          <button id="btn-chart-pause" class="btn small">⏸ Congelar</button>
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="chart"></canvas></div>
+    </section>
+
+    <!-- CONTROL -->
+    <section class="card control-card">
+      <div class="card-head"><h2>Control</h2></div>
+
+      <div class="control-block">
+        <div class="block-label">Modo de operación</div>
+        <div class="segmented">
+          <button id="mode-local" class="seg">LOCAL<small>pulsadores</small></button>
+          <button id="mode-remote" class="seg">REMOTO<small>PC / HMI</small></button>
+        </div>
+      </div>
+
+      <div class="control-block">
+        <div class="block-label">Comandos remotos <span class="var-name">remote_cmd</span></div>
+        <div class="cmd-grid">
+          <button class="btn cmd" data-cmd="1"><span class="cmd-num">1</span>Barrido<small>BTN1</small></button>
+          <button class="btn cmd" data-cmd="2"><span class="cmd-num">2</span>Fijar Home<small>BTN2</small></button>
+          <button class="btn cmd" data-cmd="3"><span class="cmd-num">3</span>Ir a Home<small>BTN3</small></button>
+        </div>
+        <button class="btn cmd stop" data-cmd="4">■ STOP <small>BTN4 · tecla Esc</small></button>
+      </div>
+
+      <div class="control-block">
+        <div class="block-label">Giro por ángulo <span class="var-name">precisión encoder</span></div>
+        <div class="segmented dir-switch" role="group" aria-label="Sentido de giro">
+          <button id="dir-pos" class="seg on-dir-pos" type="button">↻ SENTIDO +<small>Horario / Adelante</small></button>
+          <button id="dir-neg" class="seg" type="button">↺ SENTIDO −<small>Antihorario / Atrás</small></button>
+        </div>
+        <div class="step-grid">
+          <button class="btn step-btn" data-deg="30" type="button"><span class="step-deg">+30°</span><small>200 ticks</small></button>
+          <button class="btn step-btn" data-deg="90" type="button"><span class="step-deg">+90°</span><small>600 ticks</small></button>
+          <button class="btn step-btn" data-deg="180" type="button"><span class="step-deg">+180°</span><small>1200 ticks</small></button>
+          <button class="btn step-btn" data-deg="360" type="button"><span class="step-deg">+360°</span><small>2400 ticks</small></button>
+        </div>
+        <div class="cmd-status" id="cmd-status">Sin comandos pendientes</div>
+        <div class="control-hint" id="control-hint"></div>
+      </div>
+
+      <p class="safety-note">
+        El STOP de la HMI no reemplaza a la parada física. El pulsador BTN4 sigue activo en ambos modos.
+      </p>
+    </section>
+
+    <!-- VARIABLES -->
+    <section class="card vars-card">
+      <div class="card-head"><h2>Variables (RAM)</h2></div>
+      <div class="table-wrap">
+        <table class="vars-table">
+          <thead>
+            <tr><th>Variable</th><th>Tipo</th><th>Valor</th><th>Dirección</th><th>Descripción</th></tr>
+          </thead>
+          <tbody id="vars-tbody"></tbody>
+        </table>
+      </div>
+      <div class="write-form">
+        <select id="write-var"></select>
+        <input id="write-value" type="number" placeholder="valor">
+        <button id="btn-write" class="btn small">Escribir</button>
+      </div>
+    </section>
+
+    <!-- REGISTRO -->
+    <section class="card log-card">
+      <div class="card-head">
+        <h2>Registro</h2>
+        <div class="card-tools">
+          <span class="rec-info mono" id="rec-info"></span>
+          <button id="btn-rec" class="btn small">● Grabar CSV</button>
+          <button id="btn-csv" class="btn small" disabled>⤓ Descargar</button>
+          <button id="btn-clear-log" class="btn small ghost">Limpiar</button>
+        </div>
+      </div>
+      <ul class="log-list mono" id="log-list"></ul>
+    </section>
+
+    <!-- SIMULADOR (solo en modo demo) -->
+    <section class="card demo-card hidden" id="demo-card">
+      <div class="card-head"><h2>Simulador</h2><span class="tag">solo demo</span></div>
+      <p class="demo-text">Emula el firmware de la placa A, la placa B y el debugger, para probar la HMI sin hardware.</p>
+      <div class="demo-grid">
+        <button id="btn-sim-halt" class="btn small">⏸ Breakpoint (halt)</button>
+        <button id="btn-sim-canfault" class="btn small">⚡ Cortar bus CAN</button>
+        <button id="btn-sim-error" class="btn small">⚠ Inyectar ERROR motor</button>
+        <button id="btn-sim-btn5" class="btn small">BTN5 físico (Local)</button>
+        <button id="btn-sim-btn6" class="btn small">BTN6 físico (Remoto)</button>
+        <button id="btn-sim-btn4" class="btn small">BTN4 físico (Stop)</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===================== AJUSTES ===================== -->
+  <dialog id="settings-dialog">
+    <form method="dialog" class="settings-form">
+      <h2>Ajustes</h2>
+      <label>
+        Pulsos por vuelta del encoder (PPR × 4 si usás modo encoder TI12)
+        <input id="set-ppr" type="number" min="0" step="1">
+        <small>0 = mostrar solo pulsos. Con un valor &gt; 0 se muestran vueltas, grados y RPM.</small>
+      </label>
+      <label>
+        Timeout de telemetría CAN (ms)
+        <input id="set-can-timeout" type="number" min="200" step="100">
+        <small>Tiempo sin que aumente <code>telemetry_counter</code> antes de mostrar la alarma.</small>
+      </label>
+      <div class="dialog-actions">
+        <button value="cancel" class="btn ghost">Cancelar</button>
+        <button id="btn-settings-save" value="save" class="btn">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
