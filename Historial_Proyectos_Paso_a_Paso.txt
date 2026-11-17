@@ -1,0 +1,77 @@
+===========================================================================
+RESUMEN PASO A PASO DEL PROYECTO (STM32F103C8T6 "BLUE PILL")
+===========================================================================
+
+1. Blink_BP_First
+-----------------
+- Para que lo hicimos:
+  Validar el entorno de trabajo (STM32CubeIDE), el programador ST-Link con
+  OpenOCD (configuracion para clon CKS32/CS32) y comprobar el funcionamiento
+  basico de la placa Blue Pill.
+- Que hicimos:
+  Configuramos el pin PC13 como salida digital y programamos un parpadeo
+  periodico (Toggle cada 500 ms) del LED integrado.
+
+
+2. Blink_Encoder_BP_First
+-------------------------
+- Para que lo hicimos:
+  Integrar en una sola placa el control de un motor DC con encoder y 4
+  pulsadores fisicos para realizar barrido automatico y posicionamiento (Home).
+- Que hicimos:
+  - Configuramos TIM3_CH1 (PA6) para generar PWM hacia el puente H L298N y
+    los pines PA2/PA3 para el sentido de giro (IN1/IN2).
+  - Configuramos TIM2 (PA0/PA1) en modo Encoder para contar los pulsos de giro.
+  - Agregamos 4 botones con anti-rebote (PB12 a PB15) y una maquina de estados:
+      * BTN1: Barrido oscilante de 2 vueltas hacia cada lado.
+      * BTN2: Fijar posicion actual como referencia (Set Home).
+      * BTN3: Regresar automaticamente a la posicion Home (Go to Home).
+      * BTN4: Parada de emergencia (Stop).
+
+
+3. Blink_Encoder_BP_Second
+--------------------------
+- Para que lo hicimos:
+  Ajustar la fuerza y el arranque del motor para vencer la friccion estatica
+  del mecanismo (tornillo sin fin / reductor) sin que el motor se quede frenado
+  al iniciar o al invertir el giro.
+- Que hicimos:
+  - Incorporamos un impulso de arranque ("Kick-Start"): un golpe corto de PWM
+    alto al salir del reposo o cambiar de direccion, bajando luego al PWM
+    suave de marcha.
+  - Ajustamos las velocidades de aproximacion (rapida lejos del Home y lenta
+    al acercarse) para frenar con precision en el origen sin pasarse.
+
+
+4. BP_A_Master y BP_B_Salve
+---------------------------
+- Para que lo hicimos:
+  Probar y validar por primera vez la comunicacion por Bus CAN entre dos
+  placas Blue Pill usando transceptores MCP2551, sin perder el control del
+  motor que ya funcionaba en la placa B.
+- Que hicimos:
+  - En BP_A_Master (Placa A): Conectamos los botones BTN5 y BTN6 para enviar
+    tramas CAN (ID 0x020) de encendido (0x01) y apagado (0x00) del LED remoto,
+    reflejando el estado en el LED PC13 de la placa A y verificando el ACK.
+  - En BP_B_Salve (Placa B): Mantuvimos los 4 botones locales del motor y
+    agregamos recepcion CAN (PB8/PB9) para encender/apagar el LED en PB0.
+  - Calibramos el bus CAN a 250 kbps con alta tolerancia de reloj, resistencias
+    de terminacion (~60 ohm en el bus), alimentacion de 5V a los MCP2551 y
+    pin Rs a GND.
+
+
+5. BP_A_Master_F y BP_B_Salve_F (Version Final)
+-----------------------------------------------
+- Para que lo hicimos:
+  Separar completamente el panel de mando (Placa A) de la etapa de potencia y
+  movimiento (Placa B), enviando todas las ordenes de los botones por Bus CAN.
+- Que hicimos:
+  - En BP_A_Master_F (Nodo Maestro): Centralizamos los 6 botones en la placa A:
+      * BTN1 a BTN4 (PB12 a PB15): Envian por CAN (ID 0x010, datos 0x01..0x04)
+        las ordenes de Barrido, Set Home, Go to Home y Stop.
+      * BTN5 y BTN6 (PA10/PB10 y PA11/PB11): Envian por CAN (ID 0x020) el
+        encendido/apagado del LED PB0 de la placa B y lo reflejan en PC13.
+  - En BP_B_Salve_F (Nodo Esclavo / Actuador): Eliminamos los botones fisicos
+    locales y conectamos la maquina de estados del motor, encoder, kick-start,
+    homing y el LED PB0 directamente a los comandos recibidos por el Bus CAN.
+===========================================================================

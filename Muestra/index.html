@@ -1,0 +1,1892 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Muestra Interactiva · Motor, Encoder, FSM y Análisis de Fallas</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --bg-2: #121821;
+      --card: #161d27;
+      --card-2: #1c2531;
+      --border: #263241;
+      --text: #e6edf3;
+      --muted: #8b97a8;
+      --accent: #3ea6ff;
+      --ok: #2ecc71;
+      --warn: #f5b942;
+      --err: #ff4d4f;
+      --halt: #b38cff;
+      --cyan: #00d2d3;
+      --radius: 10px;
+      --mono: "JetBrains Mono", "Cascadia Code", Consolas, "Courier New", monospace;
+      --sans: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .mono { font-family: var(--mono); }
+    code {
+      font-family: var(--mono);
+      font-size: 0.9em;
+      background: #ffffff12;
+      padding: 1px 6px;
+      border-radius: 4px;
+      color: #cfe6ff;
+    }
+
+    /* Topbar */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+      padding: 10px 18px;
+      background: rgba(18, 24, 33, 0.95);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .brand { display: flex; align-items: center; gap: 11px; }
+    .brand-logo {
+      width: 34px; height: 34px;
+      display: grid; place-items: center;
+      font-size: 18px;
+      color: var(--accent);
+      background: #3ea6ff1a;
+      border: 1px solid #3ea6ff55;
+      border-radius: 8px;
+    }
+    .brand h1 { margin: 0; font-size: 15px; font-weight: 700; }
+    .brand .sub { font-size: 11px; color: var(--muted); }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .tab-btn {
+      background: var(--card);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      padding: 7px 13px;
+      border-radius: 8px;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 600;
+      font-size: 12.5px;
+      transition: all 0.15s ease;
+    }
+    .tab-btn:hover { color: var(--text); border-color: #3a4a5e; }
+    .tab-btn.active {
+      color: var(--text);
+      background: #3ea6ff20;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px #3ea6ff33;
+    }
+
+    .container {
+      max-width: 1420px;
+      margin: 0 auto;
+      padding: 16px 18px 40px;
+    }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* Cards & Layout */
+    .grid-3 {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr 1.15fr;
+      gap: 14px;
+      align-items: stretch;
+    }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    .grid-2-wide {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    @media (max-width: 1100px) {
+      .grid-3 { grid-template-columns: 1fr; }
+      .grid-2, .grid-2-wide { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .card-hdr {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+    .card-title {
+      font-size: 13.5px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .tag {
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: var(--card-2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    /* Badges */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-family: var(--mono);
+      font-size: 11.5px;
+      font-weight: 700;
+      border: 1px solid transparent;
+    }
+    .b-ok    { background: #2ecc711f; color: var(--ok); border-color: #2ecc7155; }
+    .b-info  { background: #3ea6ff1f; color: var(--accent); border-color: #3ea6ff55; }
+    .b-cyan  { background: #00d2d31f; color: var(--cyan); border-color: #00d2d355; }
+    .b-warn  { background: #f5b9421f; color: var(--warn); border-color: #f5b94255; }
+    .b-err   { background: #ff4d4f24; color: var(--err); border-color: #ff4d4f77; }
+    .b-halt  { background: #b38cff24; color: var(--halt); border-color: #b38cff66; }
+    .b-muted { background: #8b97a81c; color: var(--muted); border-color: #8b97a844; }
+
+    /* Hardware LED visualizers */
+    .led-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .led-box {
+      flex: 1;
+      min-width: 140px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .led-bulb {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #232c38;
+      border: 1px solid #3c4859;
+      flex-shrink: 0;
+      transition: background 0.06s, box-shadow 0.06s;
+    }
+    .led-bulb.on-blue { background: #3ea6ff; box-shadow: 0 0 10px #3ea6ff; border-color: #9dd4ff; }
+    .led-bulb.on-green { background: #2ecc71; box-shadow: 0 0 10px #2ecc71; border-color: #9bf3bf; }
+    .led-bulb.on-red { background: #ff4d4f; box-shadow: 0 0 12px #ff4d4f; border-color: #ff9c9d; }
+    .led-bulb.on-warn { background: #f5b942; box-shadow: 0 0 10px #f5b942; border-color: #ffe09d; }
+    .led-meta { display: flex; flex-direction: column; }
+    .led-name { font-family: var(--mono); font-size: 11.5px; font-weight: 700; }
+    .led-desc { font-size: 11px; color: var(--muted); }
+
+    /* Gear / Motor stage */
+    .motor-stage {
+      display: grid;
+      grid-template-columns: 150px 1fr;
+      gap: 14px;
+      align-items: center;
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .dial-wrap {
+      display: grid;
+      place-items: center;
+      position: relative;
+    }
+    .dial-svg { width: 138px; height: 138px; }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .metric {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 7px 9px;
+    }
+    .metric .m-lbl { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+    .metric .m-val { font-family: var(--mono); font-size: 14.5px; font-weight: 700; margin-top: 2px; }
+
+    /* PWM bar */
+    .pwm-bar-wrap {
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+    .pwm-track {
+      height: 10px;
+      background: #090c10;
+      border-radius: 999px;
+      overflow: hidden;
+      position: relative;
+      border: 1px solid var(--border);
+      margin-top: 6px;
+    }
+    .pwm-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), var(--ok));
+      transition: width 0.1s linear;
+    }
+    .pwm-fill.rev { background: linear-gradient(90deg, var(--warn), #ff7f50); }
+    .pwm-fill.err { background: var(--err); }
+
+    /* CAN Bus middle card */
+    .can-bus-box {
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .bus-line {
+      height: 22px;
+      border-radius: 6px;
+      background: #0a0e14;
+      border: 1px solid var(--border);
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 8px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .bus-line.fault { border-color: var(--err); background: #ff4d4f12; color: var(--err); }
+    .bus-pulse {
+      position: absolute;
+      width: 44px;
+      height: 6px;
+      border-radius: 999px;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+      opacity: 0;
+      pointer-events: none;
+    }
+    @keyframes travelRight {
+      0%   { left: -46px; opacity: 1; }
+      100% { left: 100%; opacity: 0.2; }
+    }
+    @keyframes travelLeft {
+      0%   { right: -46px; opacity: 1; }
+      100% { right: 100%; opacity: 0.2; }
+    }
+    .pulse-r { animation: travelRight 0.35s linear; background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+    .pulse-l { animation: travelLeft 0.35s linear; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+
+    .frame-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-family: var(--mono);
+      font-size: 11.5px;
+    }
+    .frame-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 8px;
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+
+    /* Buttons & Controls */
+    .btn-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 7px;
+    }
+    .btn-grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+    }
+    button.ctrl {
+      background: var(--card-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 8px 10px;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.12s ease;
+      text-align: center;
+    }
+    button.ctrl:hover:not(:disabled) { border-color: var(--accent); background: #222e3d; }
+    button.ctrl:disabled { opacity: 0.38; cursor: not-allowed; }
+    button.ctrl.primary { background: #3ea6ff22; border-color: #3ea6ff66; color: #b7e0ff; }
+    button.ctrl.ok { background: #2ecc7120; border-color: #2ecc7166; color: #aaf2c6; }
+    button.ctrl.warn { background: #f5b94220; border-color: #f5b94266; color: #ffe09b; }
+    button.ctrl.danger { background: #ff4d4f24; border-color: #ff4d4f77; color: #ffb3b4; }
+    button.ctrl.halt { background: #b38cff24; border-color: #b38cff66; color: #dfccff; }
+    button.ctrl.active { box-shadow: 0 0 0 2px var(--accent); border-color: var(--accent); }
+
+    /* Scenario cards */
+    .scenario-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+      gap: 9px;
+    }
+    .scen-btn {
+      text-align: left;
+      padding: 10px 12px;
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.14s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .scen-btn:hover { border-color: var(--accent); transform: translateY(-1px); }
+    .scen-btn.active { border-color: var(--err); background: #ff4d4f12; }
+    .scen-btn .s-title { font-weight: 700; font-size: 12.5px; display: flex; justify-content: space-between; gap: 6px; }
+    .scen-btn .s-sub { font-size: 11.5px; color: var(--muted); }
+
+    .explain-box {
+      background: #0b1017;
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: 7px;
+      padding: 10px 12px;
+      font-size: 12.5px;
+    }
+    .explain-box.err { border-left-color: var(--err); }
+    .explain-box.warn { border-left-color: var(--warn); }
+    .explain-box.ok { border-left-color: var(--ok); }
+
+    /* Event Log */
+    .log-box {
+      background: #090d12;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      height: 225px;
+      overflow-y: auto;
+      font-family: var(--mono);
+      font-size: 11.5px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .log-entry { display: flex; gap: 8px; }
+    .log-t { color: var(--muted); flex-shrink: 0; }
+    .log-ok { color: var(--ok); }
+    .log-warn { color: var(--warn); }
+    .log-err { color: var(--err); }
+    .log-info { color: var(--accent); }
+
+    /* FSM Explorer */
+    .fsm-nodes {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+      gap: 10px;
+    }
+    .fsm-node {
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      cursor: pointer;
+      transition: all 0.14s ease;
+    }
+    .fsm-node:hover { border-color: var(--accent); }
+    .fsm-node.selected { border-color: var(--accent); background: #3ea6ff14; box-shadow: 0 0 0 1px #3ea6ff44; }
+    .fsm-node.is-err { border-left: 3px solid var(--err); }
+    .fsm-node.is-ok { border-left: 3px solid var(--ok); }
+    .fsm-node.is-warn { border-left: 3px solid var(--warn); }
+    .fsm-node.is-info { border-left: 3px solid var(--accent); }
+    .fsm-node.is-muted { border-left: 3px solid var(--muted); }
+    .fsm-node.is-cyan { border-left: 3px solid var(--cyan); }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+    }
+    .detail-cell {
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+    .detail-cell h4 {
+      margin: 0 0 6px;
+      font-size: 11.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--muted);
+    }
+    .detail-cell ul { margin: 0; padding-left: 16px; font-size: 12.5px; }
+    .detail-cell li { margin-bottom: 4px; }
+
+    /* Matrix Table */
+    .filter-bar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .search-input {
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 7px 11px;
+      border-radius: 7px;
+      min-width: 240px;
+      font: inherit;
+    }
+    .search-input:focus { outline: none; border-color: var(--accent); }
+
+    .table-wrap { overflow-x: auto; }
+    table.matrix {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12.5px;
+    }
+    table.matrix th, table.matrix td {
+      padding: 10px 10px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+    }
+    table.matrix th {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      background: var(--bg-2);
+      position: sticky;
+      top: 0;
+    }
+    table.matrix tr:hover td { background: #ffffff05; }
+
+    /* Code viewer */
+    .code-layout {
+      display: grid;
+      grid-template-columns: 270px 1fr;
+      gap: 14px;
+    }
+    @media (max-width: 900px) { .code-layout { grid-template-columns: 1fr; } }
+    .code-menu { display: flex; flex-direction: column; gap: 6px; }
+    .code-item {
+      text-align: left;
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 11px;
+      color: var(--text);
+      cursor: pointer;
+    }
+    .code-item:hover { border-color: var(--accent); }
+    .code-item.active { border-color: var(--accent); background: #3ea6ff16; }
+    .code-item .c-file { font-family: var(--mono); font-size: 11px; color: var(--accent); }
+    .code-item .c-name { font-weight: 700; font-size: 12.5px; margin-top: 2px; }
+
+    pre.code-block {
+      margin: 0;
+      padding: 14px;
+      background: #090d12;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.55;
+      color: #d7e2ee;
+    }
+
+    .hmi-banners {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .mini-banner {
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-2);
+      color: var(--muted);
+    }
+    .mini-banner.on-err { background: #ff4d4f22; border-color: var(--err); color: #ffb5b6; }
+    .mini-banner.on-warn { background: #f5b94222; border-color: var(--warn); color: #ffe3a8; }
+    .mini-banner.on-halt { background: #b38cff22; border-color: var(--halt); color: #e2d1ff; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-logo">⚙</div>
+      <div>
+        <h1>Muestra Interactiva · Motor DC, Encoder, Bus CAN y Fallas</h1>
+        <div class="sub">Basado en <code>BP_B_Salve_F</code>, <code>BP_A_Master_F</code> y <code>HMI/</code> · 2520 ticks = 360° (relación 42:1)</div>
+      </div>
+    </div>
+    <nav class="tabs" id="main-tabs">
+      <button class="tab-btn active" data-tab="sim">1. Simulador de Fallas en Vivo</button>
+      <button class="tab-btn" data-tab="fsm">2. Máquinas de Estados (FSM)</button>
+      <button class="tab-btn" data-tab="matrix">3. Matriz Completa de Errores</button>
+      <button class="tab-btn" data-tab="code">4. Código Real Comentado</button>
+    </nav>
+  </header>
+
+  <main class="container">
+    <!-- ================================================================ -->
+    <!-- TAB 1: SIMULADOR INTERACTIVO                                      -->
+    <!-- ================================================================ -->
+    <section class="tab-panel active" id="tab-sim">
+      <div class="grid-3">
+        <!-- PLACA B (ESCLAVO) -->
+        <div class="card">
+          <div class="card-hdr">
+            <div class="card-title">Placa B · Actuador <span class="tag">BP_B_Salve_F</span></div>
+            <span class="badge b-ok" id="b-state-badge">STATE_HOMED (2)</span>
+          </div>
+
+          <div class="motor-stage">
+            <div class="dial-wrap">
+              <svg class="dial-svg" viewBox="0 0 140 140">
+                <circle cx="70" cy="70" r="60" fill="#0d1117" stroke="#263241" stroke-width="2" />
+                <!-- Zona Home +-8 grados -->
+                <path d="M 70 10 A 60 60 0 0 1 78.3 10.58 L 70 70 Z" fill="#2ecc7122" />
+                <path d="M 70 10 A 60 60 0 0 0 61.7 10.58 L 70 70 Z" fill="#2ecc7122" />
+                <line x1="70" y1="8" x2="70" y2="20" stroke="#2ecc71" stroke-width="2" />
+                <g id="gear-rotor" transform="rotate(0 70 70)">
+                  <circle cx="70" cy="70" r="42" fill="#161d27" stroke="#3ea6ff" stroke-width="2" stroke-dasharray="6 4" />
+                  <line x1="70" y1="70" x2="70" y2="22" stroke="#3ea6ff" stroke-width="3.5" stroke-linecap="round" />
+                  <circle cx="70" cy="70" r="7" fill="#e6edf3" />
+                </g>
+                <text x="70" y="128" text-anchor="middle" fill="#8b97a8" font-size="10" font-family="monospace">0° HOME</text>
+              </svg>
+            </div>
+
+            <div class="metrics">
+              <div class="metric">
+                <div class="m-lbl">Posición (Ticks)</div>
+                <div class="m-val" id="b-ticks">0</div>
+              </div>
+              <div class="metric">
+                <div class="m-lbl">Ángulo Engranaje</div>
+                <div class="m-val" id="b-deg">0.0°</div>
+              </div>
+              <div class="metric">
+                <div class="m-lbl">Objetivo (Target)</div>
+                <div class="m-val" id="b-target">0</div>
+              </div>
+              <div class="metric">
+                <div class="m-lbl">Timer Posic.</div>
+                <div class="m-val" id="b-timer">0.0 / 30 s</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="pwm-bar-wrap">
+            <div style="display:flex; justify-content:space-between; font-size:11.5px;">
+              <span>L298N PWM (<code>TIM3_CH1</code>) &amp; Sentido</span>
+              <span class="mono" id="b-pwm-lbl">0 / 999 · FRENO (IN1=0 IN2=0)</span>
+            </div>
+            <div class="pwm-track"><div class="pwm-fill" id="b-pwm-fill"></div></div>
+          </div>
+
+          <div class="led-row">
+            <div class="led-box">
+              <div class="led-bulb" id="b-led-pc13"></div>
+              <div class="led-meta">
+                <span class="led-name">PC13 (Placa B)</span>
+                <span class="led-desc" id="b-led-pc13-txt">OFF · Reposo</span>
+              </div>
+            </div>
+            <div class="led-box">
+              <div class="led-bulb" id="b-led-pb0"></div>
+              <div class="led-meta">
+                <span class="led-name">PB0 (LED_REFLEJO)</span>
+                <span class="led-desc" id="b-led-pb0-txt">OFF · Modo Local</span>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex; gap:8px; flex-wrap:wrap; font-size:11.5px; color:var(--muted);">
+            <span>Fallas físicas simuladas:</span>
+            <label><input type="checkbox" id="chk-motor-pwr" checked /> L298N energizado</label>
+            <label><input type="checkbox" id="chk-enc-a" checked /> Enc A (PA0)</label>
+            <label><input type="checkbox" id="chk-enc-b" checked /> Enc B (PA1)</label>
+            <label><input type="checkbox" id="chk-rev-wire" /> Cables invertidos</label>
+          </div>
+        </div>
+
+        <!-- BUS CAN -->
+        <div class="card">
+          <div class="card-hdr">
+            <div class="card-title">Bus CAN (MCP2551) <span class="tag">250 kbps</span></div>
+            <span class="badge b-ok" id="can-badge">ENLACE OK (20 Hz)</span>
+          </div>
+
+          <div class="can-bus-box">
+            <div style="display:flex; justify-content:space-between; font-size:11.5px;">
+              <span>Maestro (A) ➔ Esclavo (B): <code>0x010 / 0x020</code></span>
+              <span class="mono" id="can-ack-lbl">ACK ≤ 25 ms</span>
+            </div>
+            <div class="bus-line" id="bus-tx-line">
+              <span>PB8 / PB9 · CANH / CANL</span>
+              <span id="bus-tx-status">IDLE</span>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; font-size:11.5px; margin-top:4px;">
+              <span>Esclavo (B) ➔ Maestro (A): <code>0x030</code></span>
+              <span class="mono" id="can-wdg-lbl">WDG: 0 / 500 ms</span>
+            </div>
+            <div class="bus-line" id="bus-rx-line">
+              <span>Telemetría cada 50 ms</span>
+              <span id="bus-rx-status">ACTIVA</span>
+            </div>
+          </div>
+
+          <div class="frame-list">
+            <div class="frame-item">
+              <span><code>0x010</code> Comando Motor</span>
+              <span id="last-010">—</span>
+            </div>
+            <div class="frame-item">
+              <span><code>0x020</code> LED Modo PB0</span>
+              <span id="last-020">0x00 (Local)</span>
+            </div>
+            <div class="frame-item">
+              <span><code>0x030</code> Pos + Estado B</span>
+              <span id="last-030">0 ticks · st=2</span>
+            </div>
+          </div>
+
+          <div class="btn-grid">
+            <button class="ctrl danger" id="btn-cut-can">⚡ Cortar Bus CAN</button>
+            <button class="ctrl warn" id="btn-drop-ack">✖ Simular Fallo ACK</button>
+          </div>
+          <div class="hmi-banners">
+            <span class="mini-banner" id="ban-can">HMI: CAN OK</span>
+            <span class="mini-banner" id="ban-halt">ST-Link: RUNNING</span>
+            <span class="mini-banner" id="ban-stale">WS: FRESCO</span>
+          </div>
+        </div>
+
+        <!-- PLACA A (MAESTRO) + BOTONES -->
+        <div class="card">
+          <div class="card-hdr">
+            <div class="card-title">Placa A · Maestro <span class="tag">BP_A_Master_F</span></div>
+            <span class="badge b-ok" id="a-state-badge">MASTER_LOCAL (1)</span>
+          </div>
+
+          <div class="led-row">
+            <div class="led-box">
+              <div class="led-bulb" id="a-led-pc13"></div>
+              <div class="led-meta">
+                <span class="led-name">PC13 (Placa A)</span>
+                <span class="led-desc" id="a-led-pc13-txt">OFF · Modo Local</span>
+              </div>
+            </div>
+            <div class="led-box">
+              <div class="led-meta">
+                <span class="led-name">Modo / Telemetría</span>
+                <span class="led-desc mono" id="a-tlm-txt">LOCAL · cnt=0</span>
+              </div>
+            </div>
+          </div>
+
+          <div style="font-size:11.5px; color:var(--muted);">Pulsadores físicos (Placa A) y Comandos Remotos (HMI):</div>
+          <div class="btn-grid">
+            <button class="ctrl primary" id="cmd-btn5">BTN5 · Modo LOCAL</button>
+            <button class="ctrl primary" id="cmd-btn6">BTN6 · Modo REMOTO</button>
+          </div>
+          <div class="btn-grid">
+            <button class="ctrl" id="cmd-btn1">BTN1 (0x01) · Barrido ±2 v</button>
+            <button class="ctrl ok" id="cmd-btn2">BTN2 (0x02) · Fijar Home</button>
+            <button class="ctrl warn" id="cmd-btn3">BTN3 (0x03) · Ir a Home</button>
+            <button class="ctrl danger" id="cmd-btn4">BTN4 (0x04) · STOP Emerg.</button>
+          </div>
+
+          <div style="font-size:11.5px; color:var(--muted);">Giros relativos (solo en <code>MODE_REMOTE</code> y sin falla):</div>
+          <div class="btn-grid-4">
+            <button class="ctrl" data-step="5">+30°</button>
+            <button class="ctrl" data-step="6">+90°</button>
+            <button class="ctrl" data-step="7">+180°</button>
+            <button class="ctrl" data-step="8">+360°</button>
+            <button class="ctrl" data-step="9">-30°</button>
+            <button class="ctrl" data-step="10">-90°</button>
+            <button class="ctrl" data-step="11">-180°</button>
+            <button class="ctrl" data-step="12">-360°</button>
+          </div>
+
+          <div style="display:flex; gap:8px;">
+            <button class="ctrl halt" style="flex:1" id="btn-halt-cpu">⏸ Pausar CPU (ST-Link Halt)</button>
+            <button class="ctrl" style="flex:1" id="btn-reset-sim">↺ Reiniciar Sistema</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- INYECTOR DE ESCENARIOS + LOG -->
+      <div class="grid-2-wide">
+        <div class="card">
+          <div class="card-hdr">
+            <div class="card-title">Escenarios Guiados: "¿Qué pasa si...?"</div>
+            <span class="tag">Clic para probar y analizar</span>
+          </div>
+
+          <div class="scenario-list">
+            <button class="scen-btn" data-scen="limit">
+              <div class="s-title">1. Exceso de límite mecánico <span class="badge b-err">Error 4</span></div>
+              <div class="s-sub">Posición alcanza ≥ 25000 ticks durante movimiento → <code>MAX_ENCODER_LIMIT</code>.</div>
+            </button>
+            <button class="scen-btn" data-scen="timeout_pos">
+              <div class="s-title">2. Eje trabado / Sin Vmotor en Posic. <span class="badge b-err">Error 4</span></div>
+              <div class="s-sub">Comanda giro pero el encoder no avanza → Timeout a los <code>30 s</code>.</div>
+            </button>
+            <button class="scen-btn" data-scen="scan_no_enc">
+              <div class="s-title">3. Enc A desconectado en Barrido <span class="badge b-warn">Sin alerta</span></div>
+              <div class="s-sub">Demuestra que <code>STATE_SCANNING</code> no tiene timeout y queda colgado.</div>
+            </button>
+            <button class="scen-btn" data-scen="anti_runaway">
+              <div class="s-title">4. Cables invertidos (Anti-embalamiento) <span class="badge b-info">Auto-fix</span></div>
+              <div class="s-sub">El error crece > +30 ticks → invierte <code>motor_dir_sign</code> automáticamente.</div>
+            </button>
+            <button class="scen-btn" data-scen="can_cut">
+              <div class="s-title">5. Corte de Bus CAN (&gt; 500 ms) <span class="badge b-err">Master 3</span></div>
+              <div class="s-sub">Placa A entra en <code>MASTER_CAN_FAULT</code> y parpadea a 120 ms.</div>
+            </button>
+            <button class="scen-btn" data-scen="ack_fail">
+              <div class="s-title">6. Fallo de ACK al enviar comando <span class="badge b-warn">25 ms</span></div>
+              <div class="s-sub"><code>CAN_SendMessage()</code> agota 25 ms → ráfaga de 4 toggles en PC13.</div>
+            </button>
+            <button class="scen-btn" data-scen="priority">
+              <div class="s-title">7. Prioridad: Error B + Corte CAN <span class="badge b-err">3 &gt; 4</span></div>
+              <div class="s-sub">Si B está en Error (4) y se corta el CAN, A prioriza <code>MASTER_CAN_FAULT (3)</code>.</div>
+            </button>
+            <button class="scen-btn" data-scen="cpu_halt">
+              <div class="s-title">8. CPU en Halt desde ST-Link <span class="badge b-halt">HALTED</span></div>
+              <div class="s-sub">Depurador pausa CPU: telemetría congelada y comandos en espera en RAM.</div>
+            </button>
+          </div>
+
+          <div class="explain-box" id="scen-explain">
+            <strong>Listo para probar:</strong> Usá los botones de la Placa A o hacé clic en cualquiera de los 8 escenarios de arriba para observar en vivo cómo reaccionan <code>BP_B_Salve_F</code>, el bus CAN, <code>BP_A_Master_F</code> y la HMI.
+          </div>
+
+          <div style="display:flex; gap:8px; flex-wrap:wrap;" id="fast-forward-bar">
+            <button class="ctrl warn" id="btn-ff-30s">⏩ Adelantar reloj +30 s (disparar Timeout)</button>
+            <button class="ctrl" id="btn-ff-25k">⏩ Empujar posición a 25.000 ticks</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-hdr">
+            <div class="card-title">Registro de Eventos en Tiempo Real</div>
+            <button class="ctrl" style="padding:4px 9px; font-size:11px;" id="btn-clear-log">Limpiar</button>
+          </div>
+          <div class="log-box" id="event-log"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================ -->
+    <!-- TAB 2: EXPLORADOR DE MÁQUINAS DE ESTADOS (FSM)                   -->
+    <!-- ================================================================ -->
+    <section class="tab-panel" id="tab-fsm">
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-hdr">
+            <div class="card-title">FSM Nodo Esclavo · Motor (`BP_B_Salve_F`)</div>
+            <span class="tag">SystemState_t (0..5)</span>
+          </div>
+          <div class="fsm-nodes" id="fsm-b-nodes"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-hdr">
+            <div class="card-title">FSM Nodo Maestro · Supervisor (`BP_A_Master_F`)</div>
+            <span class="tag">MasterState_t (0..4)</span>
+          </div>
+          <div class="fsm-nodes" id="fsm-a-nodes"></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px;">
+        <div class="card-hdr">
+          <div class="card-title" id="fsm-detail-title">Seleccioná un estado arriba para ver su ficha técnica completa</div>
+          <span class="badge b-info" id="fsm-detail-badge">FSM</span>
+        </div>
+        <div class="detail-grid" id="fsm-detail-body"></div>
+      </div>
+    </section>
+
+    <!-- ================================================================ -->
+    <!-- TAB 3: MATRIZ COMPLETA DE ERRORES Y ALERTAS                      -->
+    <!-- ================================================================ -->
+    <section class="tab-panel" id="tab-matrix">
+      <div class="card">
+        <div class="card-hdr">
+          <div class="card-title">Inventario Completo de Estados de Error, Fallas, Alertas y Casos Especiales</div>
+          <span class="tag" id="matrix-count">13 casos documentados</span>
+        </div>
+
+        <div class="filter-bar">
+          <button class="ctrl active" data-filter="all">Todos</button>
+          <button class="ctrl" data-filter="slave">Placa B (Motor/Encoder)</button>
+          <button class="ctrl" data-filter="master">Placa A (Maestro/CAN)</button>
+          <button class="ctrl" data-filter="hmi">Puente / HMI Web</button>
+          <button class="ctrl" data-filter="hw">Hardware / Sin Detección</button>
+          <input type="text" class="search-input" id="matrix-search" placeholder="Buscar por nombre, pin, ms o causa..." />
+        </div>
+
+        <div class="table-wrap">
+          <table class="matrix">
+            <thead>
+              <tr>
+                <th>Subsistema</th>
+                <th>Estado / Alerta</th>
+                <th>Causa y Umbral Exacto</th>
+                <th>Efecto en el Sistema</th>
+                <th>Señalización (LED / HMI)</th>
+                <th>Recuperación</th>
+              </tr>
+            </thead>
+            <tbody id="matrix-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================ -->
+    <!-- TAB 4: CÓDIGO REAL COMENTADO                                     -->
+    <!-- ================================================================ -->
+    <section class="tab-panel" id="tab-code">
+      <div class="code-layout">
+        <div class="card">
+          <div class="card-hdr">
+            <div class="card-title">Puntos Críticos en Código</div>
+          </div>
+          <div class="code-menu" id="code-menu"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-hdr">
+            <div class="card-title" id="code-view-title">Seleccioná un bloque</div>
+            <span class="tag" id="code-view-file">—</span>
+          </div>
+          <div class="explain-box" id="code-view-desc"></div>
+          <pre class="code-block" id="code-view-pre"></pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    'use strict';
+
+    /* ====================================================================== */
+    /* DATOS VERIFICADOS DEL PROYECTO                                         */
+    /* ====================================================================== */
+    const TICKS_PER_GEAR_REV = 2520;
+    const HOMED_TOLERANCE_TICKS = 56;
+    const MAX_ENCODER_LIMIT = 25000;
+    const SWEEP_TARGET_TICKS = 5040;
+    const GO_HOME_TIMEOUT_MS = 30000;
+    const CAN_TIMEOUT_MS = 500;
+    const POS_DEADBAND_TICKS = 5;
+
+    const SLAVE_STATES = [
+      {
+        id: 0, code: 'STATE_IDLE', cls: 'is-muted', badge: 'b-muted',
+        short: 'Detenido fuera de Home (> ±8°)',
+        entry: ['Motor_SetSpeed(0) (freno activo)', 'LED PC13 apagado (GPIO_PIN_SET)', 'Ocurre tras STOP o giro relativo fuera de ±56 ticks de Home'],
+        accepts: ['BTN1 (0x01) → STATE_SCANNING', 'BTN2 (0x02) → Calibrar Home (STATE_HOMED)', 'BTN3 (0x03) → Ir a Home (STATE_HOMING)', 'Giros 0x05..0x0C → STATE_POSITIONING'],
+        faults: ['Sin movimiento: no dispara límites ni timeouts'],
+        exit: ['Cualquier comando de movimiento o calibración']
+      },
+      {
+        id: 1, code: 'STATE_SCANNING', cls: 'is-info', badge: 'b-info',
+        short: 'Barrido oscilante ±2 vueltas (±5040 ticks)',
+        entry: ['Guarda leg_start_ticks = total_encoder_ticks', 'Inicia fase SCAN_PHASE_FORWARD con PWM = 700', 'LED PC13 encendido fijo'],
+        accepts: ['BTN2 → Calibrar Home aquí', 'BTN3 → Ir a Home', 'BTN4 → STOP inmediato', 'Giros 0x05..0x0C → STATE_POSITIONING'],
+        faults: ['Límite mecánico ≥ 25000 ticks → STATE_ERROR_LIMIT (4)', '⚠ NO tiene timeout: si se desconecta Enc A o falta Vmotor, queda girando/esperando sin error'],
+        exit: ['BTN4 (STOP), BTN2, BTN3, paso angular o falla de límite']
+      },
+      {
+        id: 2, code: 'STATE_HOMED', cls: 'is-ok', badge: 'b-ok',
+        short: 'Detenido dentro de zona Home (±8° / ±56 ticks)',
+        entry: ['Motor_SetSpeed(0) (freno activo)', 'LED PC13 apagado', 'Estado inicial al encender o tras Slave_CalibrateHome()'],
+        accepts: ['BTN1 → Barrido', 'BTN2 → Recalibrar cero aquí', 'BTN3 → Reafirmar Home', 'Giros 0x05..0x0C → STATE_POSITIONING'],
+        faults: ['En reposo no hay fallas activas'],
+        exit: ['BTN1 o cualquier comando de giro relativo']
+      },
+      {
+        id: 3, code: 'STATE_HOMING', cls: 'is-warn', badge: 'b-warn',
+        short: 'Retornando activamente a 0° (home_position)',
+        entry: ['target_position = home_position', 'Inicia go_home_start_time = HAL_GetTick()', 'LED PC13 encendido fijo'],
+        accepts: ['BTN2 → Calibrar cero en el acto', 'BTN4 → STOP inmediato', 'Giros 0x05..0x0C → cambia a STATE_POSITIONING'],
+        faults: ['Timeout > 30000 ms sin llegar a ±5 ticks → STATE_ERROR_LIMIT (4)', 'Límite ≥ 25000 ticks → STATE_ERROR_LIMIT (4)', 'Error crece > +30 ticks → auto-invierte motor_dir_sign'],
+        exit: ['Llegada a |error| ≤ 5 ticks → STATE_HOMED']
+      },
+      {
+        id: 4, code: 'STATE_ERROR_LIMIT', cls: 'is-err', badge: 'b-err',
+        short: 'Falla crítica: límite ≥ 25000 ticks o timeout > 30 s',
+        entry: ['Motor_SetSpeed(0) (freno inmediato)', 'LED PC13 parpadea rápido cada 100 ms', 'Reporta estado = 4 en CAN 0x030 (Maestro pasa a MASTER_SLAVE_ERROR)'],
+        accepts: ['BTN2 (0x02) → Recalibrar Home y salir a STATE_HOMED', 'BTN1 (0x01) → Limpiar falla y pasar a reposo', 'BTN4 (0x04) → Freno y pasar a reposo'],
+        faults: ['Bloquea BTN3 y todos los giros relativos hasta limpiar la falla'],
+        exit: ['Solo mediante BTN1, BTN2 o BTN4']
+      },
+      {
+        id: 5, code: 'STATE_POSITIONING', cls: 'is-cyan', badge: 'b-cyan',
+        short: 'Posicionamiento relativo (±30°/90°/180°/360°)',
+        entry: ['target_position = total_encoder_ticks + step_req', 'Comparte Slave_RunPositionControl() con STATE_HOMING', 'LED PC13 encendido fijo'],
+        accepts: ['Nuevos giros 0x05..0x0C acumulan sobre target_position', 'BTN2 → Fija cero aquí', 'BTN3 → Redirige a STATE_HOMING', 'BTN4 → STOP'],
+        faults: ['Timeout > 30000 ms → STATE_ERROR_LIMIT (4)', 'Límite ≥ 25000 ticks → STATE_ERROR_LIMIT (4)', 'Error crece > +30 ticks → auto-invierte motor_dir_sign'],
+        exit: ['Llegada a |error| ≤ 5 ticks → STATE_HOMED o STATE_IDLE']
+      }
+    ];
+
+    const MASTER_STATES = [
+      {
+        id: 0, code: 'MASTER_INIT', cls: 'is-muted', badge: 'b-muted',
+        short: 'Inicialización de GPIO, CAN y espera de enlace',
+        entry: ['3 parpadeos iniciales de 100 ms en PC13', 'Inicia CAN1 + filtro + interrupción FIFO0'],
+        accepts: ['Transiciona en el primer ciclo del while(1)'],
+        faults: ['Si falla HAL_CAN_Start o filtro → Error_Handler() (bloqueo total)'],
+        exit: ['Pasa automáticamente a MASTER_LOCAL o MASTER_REMOTE según system_mode']
+      },
+      {
+        id: 1, code: 'MASTER_LOCAL', cls: 'is-ok', badge: 'b-ok',
+        short: 'Operación normal con pulsadores físicos BTN1..BTN4',
+        entry: ['current_led_state = 0', 'PC13 apagado (refleja PB0=0 en Placa B)'],
+        accepts: ['BTN1..BTN4 físicos envían CAN 0x010', 'BTN6 / system_mode=1 cambia a MASTER_REMOTE', 'Descarta remote_cmd desde PC/HMI'],
+        faults: ['Sin trama 0x030 > 500 ms → MASTER_CAN_FAULT (3)', 'live_motor_state == 4 → MASTER_SLAVE_ERROR (4)'],
+        exit: ['Cambio a Remoto o disparo de falla CAN / Esclavo']
+      },
+      {
+        id: 2, code: 'MASTER_REMOTE', cls: 'is-info', badge: 'b-info',
+        short: 'Control desde PC / HMI (remote_cmd 1..12) + BTN4 físico',
+        entry: ['current_led_state = 1', 'PC13 encendido fijo (refleja PB0=1 en Placa B)'],
+        accepts: ['remote_cmd (1..12) enviado por ST-Link/HMI', 'BTN4 físico siempre activo por seguridad de banco', 'BTN5 / system_mode=0 vuelve a MASTER_LOCAL'],
+        faults: ['Sin trama 0x030 > 500 ms → MASTER_CAN_FAULT (3)', 'live_motor_state == 4 → MASTER_SLAVE_ERROR (4)'],
+        exit: ['Cambio a Local o disparo de falla CAN / Esclavo']
+      },
+      {
+        id: 3, code: 'MASTER_CAN_FAULT', cls: 'is-err', badge: 'b-err',
+        short: 'Pérdida de enlace CAN (> 500 ms sin telemetría 0x030)',
+        entry: ['Descarta cualquier remote_cmd pendiente', 'Inicia parpadeo rápido de PC13 cada 120 ms'],
+        accepts: ['Solo supervisa llegada de nuevas tramas 0x030', 'Tiene mayor prioridad que MASTER_SLAVE_ERROR'],
+        faults: ['Bloquea operación hasta recuperar la comunicación CAN'],
+        exit: ['Recuperación automática apenas vuelve 0x030 (≤ 500 ms); reenvía 0x020']
+      },
+      {
+        id: 4, code: 'MASTER_SLAVE_ERROR', cls: 'is-warn', badge: 'b-warn',
+        short: 'Placa B reportó STATE_ERROR_LIMIT (live_motor_state == 4)',
+        entry: ['Inicia parpadeo de advertencia en PC13 cada 250 ms'],
+        accepts: ['Solo deja pasar comandos de desbloqueo: BTN1 (1), BTN2 (2) y BTN4 (4)', 'Descarta BTN3 (3) y giros (5..12)'],
+        faults: ['Si además cae el bus CAN > 500 ms → escala a MASTER_CAN_FAULT (3)'],
+        exit: ['Automático cuando Placa B vuelve a reportar live_motor_state != 4']
+      }
+    ];
+
+    const MATRIX_ROWS = [
+      { sub: 'slave', name: 'STATE_ERROR_LIMIT (4) por Límite Mecánico', cause: 'abs(total_encoder_ticks - home_position) >= 25000 ticks durante movimiento.', effect: 'Motor_SetSpeed(0) inmediato; bloquea nuevos giros hasta limpiar falla.', led: 'B: PC13 parpadea cada 100 ms · HMI: ERROR (4)', rec: 'Enviar BTN2 (Set Home) o BTN1/BTN4.' },
+      { sub: 'slave', name: 'STATE_ERROR_LIMIT (4) por Timeout de Posición', cause: '(HAL_GetTick() - go_home_start_time) > 30000 ms en HOMING o POSITIONING sin entrar en ±5 ticks.', effect: 'Frena el motor y corta el intento de posicionamiento.', led: 'B: PC13 parpadea cada 100 ms · HMI: ERROR (4)', rec: 'Revisar traba/energía/encoder y pulsar BTN2, BTN1 o BTN4.' },
+      { sub: 'slave', name: 'Auto-corrección Anti-embalamiento (Anomalía)', cause: 'abs_err > go_home_initial_error + 30 ticks en Slave_RunPositionControl().', effect: 'Invierte motor_dir_sign (+1 ↔ -1) automáticamente para evitar que el error siga creciendo.', led: 'Sin alerta visual (se corrige en vuelo).', rec: 'Automática en el ciclo siguiente.' },
+      { sub: 'slave', name: 'Error_Handler() en Placa B', cause: 'Falla de inicialización HAL (SystemClock, TIM2, TIM3, CAN_Start, CAN_Filter).', effect: '__disable_irq() y bucle infinito while(1); placa congelada.', led: 'Sin parpadeo; deja de emitir CAN 0x030 (A ve CAN_FAULT).', rec: 'Reinicio físico (Reset / ciclo de alimentación).' },
+      { sub: 'master', name: 'MASTER_CAN_FAULT (3)', cause: '> 500 ms sin recibir tramas CAN 0x030 desde Placa B (CAN_TELEMETRY_TIMEOUT_MS).', effect: 'Descarta comandos remotos; prioridad superior a MASTER_SLAVE_ERROR.', led: 'A: PC13 parpadea rápido cada 120 ms · HMI: CAN_FAULT (3)', rec: 'Automática al reaparecer 0x030; reenvía 0x020.' },
+      { sub: 'master', name: 'MASTER_SLAVE_ERROR (4)', cause: 'Trama CAN 0x030 trae live_motor_state == 4.', effect: 'Solo permite comandos 1 (BTN1), 2 (BTN2) y 4 (STOP); descarta el resto.', led: 'A: PC13 parpadea cada 250 ms · HMI: SLAVE_ERROR (4)', rec: 'Automática cuando Placa B sale de estado 4.' },
+      { sub: 'master', name: 'Fallo de ACK en Transmisión CAN', cause: 'CAN_SendMessage() falla al encolar o no recibe ACK en 25 ms.', effect: 'Aborta el buzón TX pendiente y devuelve 0.', led: 'A: Indicate_CAN_Result(0) parpadea PC13 4 veces cada 40 ms.', rec: 'Se restablece tras la ráfaga; reintentar comando.' },
+      { sub: 'master', name: 'Error_Handler() en Placa A', cause: 'Falla de inicialización HAL (CAN_Filter, HAL_CAN_Start, Notification, Clock).', effect: '__disable_irq() y bucle infinito while(1).', led: 'Placa congelada; puente Python deja de ver cambios.', rec: 'Reinicio físico (Reset).' },
+      { sub: 'hmi', name: 'Banner CAN SIN DATOS (canDead)', cause: 'CPU corriendo, WS fresco, pero telemetry_counter sin cambios > canTimeoutMs (1000 ms por defecto).', effect: 'Pone pill CAN en rojo (SIN DATOS) y muestra banner de alerta.', led: 'HMI: Banner rojo de pérdida de telemetría CAN.', rec: 'Desaparece apenas vuelve a incrementar telemetry_counter.' },
+      { sub: 'hmi', name: 'CPU en Pausa (HALTED)', cause: 'El depurador ST-Link / OpenOCD pausó el Cortex-M3 (target == halted).', effect: 'Variables congeladas; comandos escritos en RAM quedan pendientes sin ejecutarse.', led: 'HMI: Pill violeta HALTED y banner de CPU en pausa.', rec: 'Reanudar ejecución (Resume / F8) desde CubeIDE o puente.' },
+      { sub: 'hmi', name: 'Datos Viejos / Enlace Caído (STALE)', cause: '> 2000 ms (STALE_MS) sin mensajes desde bridge.py por WebSocket.', effect: 'Pill de puente pasa a amarillo y alerta desconexión.', led: 'HMI: Banner de enlace estancado.', rec: 'Reconecta automáticamente cada 2 s o reiniciar bridge.py.' },
+      { sub: 'hmi', name: 'CMD_TIMEOUT / WRITE_TIMEOUT', cause: 'remote_cmd != 0 tras 3000 ms o falta ACK del puente en 2000 ms.', effect: 'Libera el botón pendiente y registra error rojo en la consola HMI.', led: 'HMI: Log rojo "no fue procesado por el firmware (timeout)".', rec: 'Verificar modo REMOTE y estado RUNNING del micro.' },
+      { sub: 'hw', name: 'Canal A (PA0) desconectado / Sin Vmotor', cause: 'No llegan flancos a TIM2_CH1 (modo TI1): delta = 0 aunque haya PWM.', effect: 'En HOMING/POSITIONING dispara Error 4 a los 30 s. En SCANNING NO dispara falla (queda esperando 5040 ticks).', led: 'En SCANNING no da alerta. En POS/HOMING da Error 4 tras 30 s.', rec: 'Reconectar señal/energía; usar BTN4 (STOP) si quedó en barrido.' },
+      { sub: 'hw', name: 'Canal B (PA1) desconectado', cause: 'TIM2_CH2 queda flotante (GPIO_NOPULL); cuenta flancos de A sin referencia de fase B.', effect: 'Conteo con sentido errático o fijo; puede disparar anti-inversión, freno falso, Error 4 por límite/timeout o seguir sin alerta en barrido.', led: 'Variable según comportamiento del pin flotante.', rec: 'Reconectar Canal B en PA1 y recalibrar Home (BTN2).' }
+    ];
+
+    const CODE_SNIPPETS = [
+      {
+        id: 'limit',
+        file: 'BP_B_Salve_F/Core/Src/main.c (L577-586)',
+        title: '1. Verificación de Límite Mecánico (25000 ticks)',
+        desc: 'Se evalúa en cada vuelta del while(1) únicamente si el motor está en un estado de movimiento activo. Si se aleja 25000 ticks o más desde home_position, fuerza STATE_ERROR_LIMIT.',
+        code: `/* 4. VERIFICACIÓN DE LÍMITE MECÁNICO DE SEGURIDAD */
+if (current_state == STATE_SCANNING ||
+    current_state == STATE_HOMING   ||
+    current_state == STATE_POSITIONING)
+{
+  if (abs(total_encoder_ticks - home_position) >= MAX_ENCODER_LIMIT)
+  {
+    Slave_EnterState(STATE_ERROR_LIMIT);
+  }
+}`
+      },
+      {
+        id: 'timeout',
+        file: 'BP_B_Salve_F/Core/Src/main.c (L455-475)',
+        title: '2. Banda Muerta, Anti-embalamiento y Timeout (30 s)',
+        desc: 'Dentro de Slave_RunPositionControl(): primero chequea llegada (±5 ticks); luego vigila si el error crece > +30 ticks para invertir motor_dir_sign; finalmente controla el timeout de 30000 ms.',
+        code: `/* 1. Verificacion de llegada dentro de la banda muerta */
+if (abs_err <= POS_DEADBAND_TICKS)
+{
+  Slave_TransitionToRest();
+  return;
+}
+
+/* 2. Deteccion y auto-correccion de sentido invertido (anti-embalamiento) */
+if (abs_err > (go_home_initial_error + 30))
+{
+  motor_dir_sign = -motor_dir_sign;
+  go_home_initial_error = abs_err;
+}
+
+/* 3. Timeout de seguridad -> transicion formal a STATE_ERROR_LIMIT */
+if ((HAL_GetTick() - go_home_start_time) > GO_HOME_TIMEOUT_MS)
+{
+  Slave_EnterState(STATE_ERROR_LIMIT);
+  return;
+}`
+      },
+      {
+        id: 'err_b',
+        file: 'BP_B_Salve_F/Core/Src/main.c (L694-712)',
+        title: '3. Manejo y Recuperación de STATE_ERROR_LIMIT en B',
+        desc: 'Mantiene el motor frenado, hace parpadear PC13 cada 100 ms y solo permite salir mediante BTN2 (recalibrar Home) o BTN1 (ir a reposo).',
+        code: `case STATE_ERROR_LIMIT:
+  Motor_SetSpeed(0);
+  /* Parpadeo no bloqueante de advertencia cada 100 ms */
+  if ((HAL_GetTick() - error_blink_tick) >= 100)
+  {
+    error_blink_tick = HAL_GetTick();
+    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+  }
+
+  /* Salir del estado de falla al presionar BTN2 (Recalibrar Home) o BTN1 */
+  if (btn2)
+  {
+    Slave_CalibrateHome();
+  }
+  else if (btn1)
+  {
+    Slave_TransitionToRest();
+  }
+  break;`
+      },
+      {
+        id: 'master_faults',
+        file: 'BP_A_Master_F/Core/Src/main.c (L555-636)',
+        title: '4. MASTER_CAN_FAULT (500 ms) y MASTER_SLAVE_ERROR',
+        desc: 'El Maestro vigila el watchdog de 500 ms sobre tramas 0x030 y el estado live_motor_state == 4. Si se pierde el CAN mientras había error del esclavo, prioriza MASTER_CAN_FAULT.',
+        code: `case MASTER_CAN_FAULT:
+  if (remote_cmd != 0) remote_cmd = 0;
+  if ((HAL_GetTick() - fault_blink_tick) >= 120)
+  {
+    fault_blink_tick = HAL_GetTick();
+    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+  }
+  if ((HAL_GetTick() - last_rx_telemetry_tick) <= CAN_TELEMETRY_TIMEOUT_MS)
+  {
+    CAN_SendMessage(0x020, current_led_state);
+    Master_EnterState((live_motor_state == 4) ? MASTER_SLAVE_ERROR
+      : ((system_mode == MODE_REMOTE) ? MASTER_REMOTE : MASTER_LOCAL));
+  }
+  break;
+
+case MASTER_SLAVE_ERROR:
+  if ((HAL_GetTick() - last_rx_telemetry_tick) > CAN_TELEMETRY_TIMEOUT_MS)
+  {
+    Master_EnterState(MASTER_CAN_FAULT);
+    break;
+  }
+  if ((HAL_GetTick() - fault_blink_tick) >= 250)
+  {
+    fault_blink_tick = HAL_GetTick();
+    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+  }
+  /* Solo deja pasar comandos 1, 2 y 4 para desbloquear Placa B */
+  if (live_motor_state != 4)
+  {
+    Master_EnterState((system_mode == MODE_REMOTE) ? MASTER_REMOTE : MASTER_LOCAL);
+  }
+  break;`
+      },
+      {
+        id: 'ack',
+        file: 'BP_A_Master_F/Core/Src/main.c (L164-189)',
+        title: '5. Timeout de ACK (25 ms) y Alerta Visual',
+        desc: 'Al transmitir por CAN, espera hasta 25 ms la confirmación del receptor. Si falla, aborta el envío y conmuta PC13 4 veces cada 40 ms.',
+        code: `uint32_t t0 = HAL_GetTick();
+while (HAL_CAN_IsTxMessagePending(&hcan, txMailbox))
+{
+  if ((HAL_GetTick() - t0) > 25)
+  {
+    HAL_CAN_AbortTxRequest(&hcan, txMailbox);
+    return 0;
+  }
+}
+
+void Indicate_CAN_Result(uint8_t ack_ok)
+{
+  if (!ack_ok)
+  {
+    for (int i = 0; i < 4; i++)
+    {
+      HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+      HAL_Delay(40);
+    }
+  }
+}`
+      },
+      {
+        id: 'hmi_chk',
+        file: 'HMI/app.js (L80-82, L668-680)',
+        title: '6. Alarmas de la HMI Web y Puente ST-Link',
+        desc: 'La HMI supervisa tres temporizadores independientes: pausa de CPU (halted), retraso de WebSocket (STALE_MS = 2000 ms) y congelamiento de telemetry_counter (canTimeoutMs = 1000 ms).',
+        code: `const WRITE_TIMEOUT_MS = 2000;
+const CMD_TIMEOUT_MS   = 3000;
+const STALE_MS         = 2000;
+
+const halted = app.target === 'halted';
+const stale  = connected && now - app.lastMsgT > STALE_MS;
+const canDead = connected && app.target === 'running' && !stale
+                && (now - app.lastCounterChangeT > settings.canTimeoutMs);`
+      }
+    ];
+
+    /* ====================================================================== */
+    /* ESTADO DEL SIMULADOR                                                   */
+    /* ====================================================================== */
+    const sim = {
+      slaveState: 2, // 0=IDLE,1=SCANNING,2=HOMED,3=HOMING,4=ERROR,5=POSITIONING
+      ticks: 0,
+      homeTicks: 0,
+      targetTicks: 0,
+      pwm: 0,
+      dirSign: 1,
+      initialError: 0,
+      posStartMs: 0,
+      simClockMs: 0,
+      scanPhase: 0, // 0=FWD, 1=PAUSE_FWD, 2=REV, 3=PAUSE_REV
+      legStartTicks: 0,
+      scanPauseStartMs: 0,
+      ledPb0: 0,
+      homeFlashUntil: 0,
+
+      masterState: 1, // 0=INIT,1=LOCAL,2=REMOTE,3=CAN_FAULT,4=SLAVE_ERROR
+      mode: 0, // 0=LOCAL, 1=REMOTE
+      tlmCounter: 0,
+      lastTlmRxMs: 0,
+      ackFailFlashUntil: 0,
+
+      canCut: false,
+      dropNextAck: false,
+      cpuHalted: false,
+
+      motorPower: true,
+      encA: true,
+      encB: true,
+      revWiring: false,
+      physicalTicks: 0,
+      lastTickMs: performance.now(),
+      lastTlmTxMs: 0,
+      bBlinkState: false,
+      bBlinkMs: 0,
+      aBlinkState: false,
+      aBlinkMs: 0
+    };
+
+    const $ = (id) => document.getElementById(id);
+
+    function logEv(msg, cls = 'log-info') {
+      const box = $('event-log');
+      const d = document.createElement('div');
+      d.className = 'log-entry';
+      const t = (sim.simClockMs / 1000).toFixed(1).padStart(5, ' ') + 's';
+      d.innerHTML = `<span class="log-t">[${t}]</span><span class="${cls}">${msg}</span>`;
+      box.appendChild(d);
+      while (box.children.length > 90) box.removeChild(box.firstChild);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function setExplain(html, level = '') {
+      const el = $('scen-explain');
+      el.className = 'explain-box' + (level ? ' ' + level : '');
+      el.innerHTML = html;
+    }
+
+    function flashBus(dir, label) {
+      const line = $(dir === 'tx' ? 'bus-tx-line' : 'bus-rx-line');
+      const p = document.createElement('div');
+      p.className = 'bus-pulse ' + (dir === 'tx' ? 'pulse-r' : 'pulse-l');
+      line.appendChild(p);
+      setTimeout(() => p.remove(), 360);
+      if (dir === 'tx') $('bus-tx-status').textContent = label;
+      else $('bus-rx-status').textContent = label;
+    }
+
+    /* ====================================================================== */
+    /* COMANDOS Y TRANSICIONES                                                */
+    /* ====================================================================== */
+    function sendCanCmd(cmdByte, fromPhysical = false) {
+      if (sim.cpuHalted) {
+        logEv(`CPU en HALT: el comando 0x0${cmdByte.toString(16)} quedó esperando en RAM.`, 'log-warn');
+        return;
+      }
+
+      if (sim.masterState === 3) {
+        logEv('Maestro en MASTER_CAN_FAULT: comando descartado.', 'log-err');
+        return;
+      }
+
+      if (sim.masterState === 4 && ![1, 2, 4].includes(cmdByte)) {
+        logEv(`Maestro en MASTER_SLAVE_ERROR: comando ${cmdByte} bloqueado (solo permite BTN1, BTN2 o BTN4).`, 'log-warn');
+        return;
+      }
+
+      if (!fromPhysical && sim.mode === 0) {
+        logEv('Modo LOCAL activo: comandos remotos descartados por el Maestro.', 'log-warn');
+        return;
+      }
+
+      if (sim.canCut || sim.dropNextAck) {
+        sim.dropNextAck = false;
+        sim.ackFailFlashUntil = sim.simClockMs + 320;
+        flashBus('tx', 'NO ACK (25ms)');
+        logEv(`Fallo ACK (timeout 25 ms) al enviar 0x010 = 0x${cmdByte.toString(16).padStart(2, '0')} → PC13 de A parpadea 4x40ms.`, 'log-err');
+        return;
+      }
+
+      flashBus('tx', `0x010 [${cmdByte}] OK`);
+      $('last-010').textContent = `cmd=${cmdByte} (ACK OK)`;
+      processSlaveCommand(cmdByte);
+    }
+
+    function processSlaveCommand(cmd) {
+      if (cmd === 4) {
+        slaveTransitionToRest();
+        logEv('BTN4 (STOP): freno activo en Placa B.', 'log-warn');
+        return;
+      }
+
+      if (sim.slaveState === 4) {
+        if (cmd === 2) { slaveCalibrateHome(); return; }
+        if (cmd === 1) { slaveTransitionToRest(); logEv('BTN1 en Error: falla limpiada, pasa a reposo.', 'log-ok'); return; }
+        return;
+      }
+
+      if (cmd === 2) {
+        slaveCalibrateHome();
+        return;
+      }
+
+      if (cmd === 1) {
+        sim.slaveState = 1;
+        sim.scanPhase = 0;
+        sim.legStartTicks = sim.ticks;
+        sim.pwm = 700;
+        logEv('BTN1: Inicia STATE_SCANNING (barrido ±5040 ticks).', 'log-info');
+        return;
+      }
+
+      if (cmd === 3) {
+        startMoveToTarget(sim.homeTicks, 3);
+        logEv('BTN3: Inicia STATE_HOMING hacia 0 ticks.', 'log-info');
+        return;
+      }
+
+      const stepMap = { 5: 210, 6: 630, 7: 1260, 8: 2520, 9: -210, 10: -630, 11: -1260, 12: -2520 };
+      const step = stepMap[cmd];
+      if (step !== undefined) {
+        if (sim.slaveState === 5) {
+          sim.targetTicks += step;
+          sim.initialError = Math.abs(sim.targetTicks - sim.ticks);
+          sim.posStartMs = sim.simClockMs;
+        } else {
+          startMoveToTarget(sim.ticks + step, 5);
+        }
+        logEv(`Comando ${cmd}: giro relativo ${step > 0 ? '+' : ''}${step} ticks → target=${sim.targetTicks}.`, 'log-info');
+      }
+    }
+
+    function startMoveToTarget(target, stateId) {
+      sim.targetTicks = target;
+      sim.initialError = Math.abs(sim.targetTicks - sim.ticks);
+      sim.posStartMs = sim.simClockMs;
+      sim.slaveState = stateId;
+    }
+
+    function slaveTransitionToRest() {
+      sim.pwm = 0;
+      sim.slaveState = Math.abs(sim.ticks - sim.homeTicks) <= HOMED_TOLERANCE_TICKS ? 2 : 0;
+    }
+
+    function slaveCalibrateHome() {
+      sim.pwm = 0;
+      sim.ticks = 0;
+      sim.homeTicks = 0;
+      sim.targetTicks = 0;
+      sim.slaveState = 2;
+      sim.homeFlashUntil = sim.simClockMs + 160;
+      logEv('BTN2: Slave_CalibrateHome() → ticks=0, STATE_HOMED.', 'log-ok');
+    }
+
+    function setSystemMode(newMode) {
+      if (sim.cpuHalted) {
+        logEv('CPU en HALT: cambio de modo pendiente en RAM.', 'log-warn');
+        return;
+      }
+      sim.mode = newMode;
+      if (sim.masterState === 1 || sim.masterState === 2) {
+        sim.masterState = newMode === 1 ? 2 : 1;
+      }
+      if (!sim.canCut) {
+        sim.ledPb0 = newMode;
+        flashBus('tx', `0x020 [${newMode}]`);
+        $('last-020').textContent = newMode ? '0x01 (Remoto)' : '0x00 (Local)';
+      } else {
+        sim.ackFailFlashUntil = sim.simClockMs + 320;
+        logEv('Sin enlace CAN al enviar 0x020 (LED_REFLEJO).', 'log-err');
+      }
+      logEv(`Modo cambiado a ${newMode ? 'REMOTO' : 'LOCAL'}.`, 'log-info');
+    }
+
+    /* ====================================================================== */
+    /* PASO DE SIMULACIÓN (~30 FPS)                                           */
+    /* ====================================================================== */
+    function stepSimulation(now) {
+      const realDt = Math.min(80, now - sim.lastTickMs);
+      sim.lastTickMs = now;
+
+      if (!sim.cpuHalted) {
+        sim.simClockMs += realDt;
+
+        // 1. Verificar limite fisico 25000 ticks en movimiento
+        if ([1, 3, 5].includes(sim.slaveState)) {
+          if (Math.abs(sim.ticks - sim.homeTicks) >= MAX_ENCODER_LIMIT) {
+            sim.pwm = 0;
+            sim.slaveState = 4;
+            logEv('FALLA B: |ticks - home| >= 25000 (MAX_ENCODER_LIMIT) → STATE_ERROR_LIMIT (4)!', 'log-err');
+          }
+        }
+
+        // 2. Ejecutar FSM de Placa B
+        if (sim.slaveState === 1) {
+          if (sim.scanPhase === 0) {
+            sim.pwm = 700;
+            if (Math.abs(sim.ticks - sim.legStartTicks) >= SWEEP_TARGET_TICKS) {
+              sim.pwm = 0;
+              sim.scanPauseStartMs = sim.simClockMs;
+              sim.scanPhase = 1;
+              logEv('Barrido: completó +5040 ticks, pausa 1 s.', 'log-info');
+            }
+          } else if (sim.scanPhase === 1) {
+            sim.pwm = 0;
+            if (sim.simClockMs - sim.scanPauseStartMs >= 1000) {
+              sim.legStartTicks = sim.ticks;
+              sim.scanPhase = 2;
+              sim.pwm = -700;
+            }
+          } else if (sim.scanPhase === 2) {
+            sim.pwm = -700;
+            if (Math.abs(sim.ticks - sim.legStartTicks) >= SWEEP_TARGET_TICKS) {
+              sim.pwm = 0;
+              sim.scanPauseStartMs = sim.simClockMs;
+              sim.scanPhase = 3;
+              logEv('Barrido: completó -5040 ticks, pausa 1 s.', 'log-info');
+            }
+          } else if (sim.scanPhase === 3) {
+            sim.pwm = 0;
+            if (sim.simClockMs - sim.scanPauseStartMs >= 1000) {
+              sim.legStartTicks = sim.ticks;
+              sim.scanPhase = 0;
+              sim.pwm = 700;
+            }
+          }
+        } else if (sim.slaveState === 3 || sim.slaveState === 5) {
+          const err = sim.targetTicks - sim.ticks;
+          const absErr = Math.abs(err);
+
+          if (absErr <= POS_DEADBAND_TICKS) {
+            slaveTransitionToRest();
+            logEv(`Objetivo alcanzado (|error|=${absErr} ≤ 5 ticks) → ${sim.slaveState === 2 ? 'STATE_HOMED' : 'STATE_IDLE'}.`, 'log-ok');
+          } else if (absErr > sim.initialError + 30) {
+            sim.dirSign = -sim.dirSign;
+            sim.initialError = absErr;
+            logEv(`Anti-embalamiento: error creció > +30 ticks → invierte motor_dir_sign (${sim.dirSign > 0 ? '+1' : '-1'})!`, 'log-warn');
+          } else if (sim.simClockMs - sim.posStartMs > GO_HOME_TIMEOUT_MS) {
+            sim.pwm = 0;
+            sim.slaveState = 4;
+            logEv('FALLA B: Timeout > 30000 ms (GO_HOME_TIMEOUT_MS) → STATE_ERROR_LIMIT (4)!', 'log-err');
+          } else {
+            const spd = absErr > 40 ? 700 : 550;
+            sim.pwm = (err > 0 ? 1 : -1) * sim.dirSign * spd;
+          }
+        } else {
+          sim.pwm = 0;
+        }
+
+        // 3. Fisica del motor + lectura de encoder
+        if (sim.motorPower && sim.pwm !== 0) {
+          const wireFactor = sim.revWiring ? -1 : 1;
+          const speedTicksPerSec = (sim.pwm / 700) * 850 * wireFactor;
+          const dPhys = speedTicksPerSec * (realDt / 1000);
+          sim.physicalTicks += dPhys;
+
+          if (sim.encA) {
+            if (sim.encB) {
+              sim.ticks += dPhys;
+            } else {
+              // Canal B flotante: cuenta siempre positivo aunque retroceda
+              sim.ticks += Math.abs(dPhys);
+            }
+          }
+        }
+
+        // 4. Telemetria CAN 0x030 cada 50 ms (20 Hz)
+        if (!sim.canCut && (sim.simClockMs - sim.lastTlmTxMs >= 50)) {
+          sim.lastTlmTxMs = sim.simClockMs;
+          sim.tlmCounter++;
+          sim.lastTlmRxMs = sim.simClockMs;
+          $('last-030').textContent = `${Math.round(sim.ticks)} ticks · st=${sim.slaveState}`;
+          if (sim.tlmCounter % 8 === 0) flashBus('rx', '0x030 OK');
+        }
+
+        // 5. Watchdog del Maestro (500 ms) y supervision de estado B
+        const canAge = sim.simClockMs - sim.lastTlmRxMs;
+        if (canAge > CAN_TIMEOUT_MS) {
+          if (sim.masterState !== 3) {
+            sim.masterState = 3;
+            logEv('FALLA A: > 500 ms sin telemetría 0x030 → MASTER_CAN_FAULT (3)!', 'log-err');
+          }
+        } else if (sim.slaveState === 4) {
+          if (sim.masterState !== 4) {
+            sim.masterState = 4;
+            logEv('ALERTA A: Placa B reportó estado 4 → MASTER_SLAVE_ERROR (4).', 'log-warn');
+          }
+        } else if (sim.masterState === 3 || sim.masterState === 4) {
+          const targetM = sim.mode === 1 ? 2 : 1;
+          sim.masterState = targetM;
+          logEv(`Maestro recuperado → ${targetM === 2 ? 'MASTER_REMOTE' : 'MASTER_LOCAL'}.`, 'log-ok');
+        }
+      }
+
+      renderSim(now);
+      requestAnimationFrame(stepSimulation);
+    }
+
+    function renderSim(now) {
+      // Placa B badge & metrics
+      const bMeta = SLAVE_STATES[sim.slaveState];
+      const bBadge = $('b-state-badge');
+      bBadge.textContent = `${bMeta.code} (${sim.slaveState})`;
+      bBadge.className = `badge ${bMeta.badge}`;
+
+      const deg = (sim.ticks * 360) / TICKS_PER_GEAR_REV;
+      $('b-ticks').textContent = Math.round(sim.ticks);
+      $('b-deg').textContent = `${deg.toFixed(1)}°`;
+      $('b-target').textContent = sim.slaveState === 1
+        ? `${Math.round(sim.legStartTicks + (sim.scanPhase < 2 ? SWEEP_TARGET_TICKS : -SWEEP_TARGET_TICKS))}`
+        : Math.round(sim.targetTicks);
+
+      const posElapsed = (sim.slaveState === 3 || sim.slaveState === 5)
+        ? Math.min(30, (sim.simClockMs - sim.posStartMs) / 1000) : 0;
+      $('b-timer').textContent = `${posElapsed.toFixed(1)} / 30 s`;
+
+      $('gear-rotor').setAttribute('transform', `rotate(${deg % 360} 70 70)`);
+
+      // PWM bar
+      const absPwm = Math.abs(sim.pwm);
+      const fill = $('b-pwm-fill');
+      fill.style.width = `${(absPwm / 999) * 100}%`;
+      fill.className = 'pwm-fill' + (sim.slaveState === 4 ? ' err' : sim.pwm < 0 ? ' rev' : '');
+      const dirTxt = sim.pwm > 0 ? 'ADELANTE (IN1=1 IN2=0)' : sim.pwm < 0 ? 'ATRÁS (IN1=0 IN2=1)' : 'FRENO (IN1=0 IN2=0)';
+      $('b-pwm-lbl').textContent = `${sim.pwm} / 999 · ${dirTxt}`;
+
+      // LEDs Placa B
+      const bLed = $('b-led-pc13');
+      if (sim.slaveState === 4) {
+        if (now - sim.bBlinkMs >= 100) { sim.bBlinkMs = now; sim.bBlinkState = !sim.bBlinkState; }
+        bLed.className = 'led-bulb' + (sim.bBlinkState ? ' on-red' : '');
+        $('b-led-pc13-txt').textContent = 'PARPADEO 100 ms · ERROR_LIMIT';
+      } else if (sim.simClockMs < sim.homeFlashUntil) {
+        bLed.className = 'led-bulb on-green';
+        $('b-led-pc13-txt').textContent = 'DESTELLO 120 ms · Home OK';
+      } else if ([1, 3, 5].includes(sim.slaveState)) {
+        bLed.className = 'led-bulb on-blue';
+        $('b-led-pc13-txt').textContent = 'ON FIJO · En movimiento';
+      } else {
+        bLed.className = 'led-bulb';
+        $('b-led-pc13-txt').textContent = 'OFF · Reposo';
+      }
+
+      $('b-led-pb0').className = 'led-bulb' + (sim.ledPb0 ? ' on-green' : '');
+      $('b-led-pb0-txt').textContent = sim.ledPb0 ? 'ON · Modo Remoto' : 'OFF · Modo Local';
+
+      // CAN & Banners
+      const canAge = Math.round(sim.simClockMs - sim.lastTlmRxMs);
+      $('can-wdg-lbl').textContent = `WDG: ${Math.min(999, canAge)} / 500 ms`;
+      $('bus-tx-line').className = 'bus-line' + (sim.canCut ? ' fault' : '');
+      $('bus-rx-line').className = 'bus-line' + (sim.canCut ? ' fault' : '');
+      if (sim.canCut) {
+        $('bus-rx-status').textContent = 'SIN TRAMAS';
+        $('can-badge').textContent = 'BUS CORTADO';
+        $('can-badge').className = 'badge b-err';
+      } else {
+        $('can-badge').textContent = 'ENLACE OK (20 Hz)';
+        $('can-badge').className = 'badge b-ok';
+      }
+
+      $('ban-can').className = 'mini-banner' + (sim.canCut ? ' on-err' : '');
+      $('ban-can').textContent = sim.canCut ? 'HMI: CAN SIN DATOS' : 'HMI: CAN OK';
+      $('ban-halt').className = 'mini-banner' + (sim.cpuHalted ? ' on-halt' : '');
+      $('ban-halt').textContent = sim.cpuHalted ? 'ST-Link: HALTED' : 'ST-Link: RUNNING';
+      $('ban-stale').className = 'mini-banner' + (sim.cpuHalted ? ' on-warn' : '');
+      $('ban-stale').textContent = sim.cpuHalted ? 'RAM: CONGELADA' : 'WS: FRESCO';
+
+      // Placa A badge & LED
+      const aMeta = MASTER_STATES[sim.masterState];
+      const aBadge = $('a-state-badge');
+      aBadge.textContent = `${aMeta.code} (${sim.masterState})`;
+      aBadge.className = `badge ${aMeta.badge}`;
+      $('a-tlm-txt').textContent = `${sim.mode ? 'REMOTO' : 'LOCAL'} · cnt=${sim.tlmCounter}`;
+
+      const aLed = $('a-led-pc13');
+      if (sim.simClockMs < sim.ackFailFlashUntil) {
+        if (now - sim.aBlinkMs >= 40) { sim.aBlinkMs = now; sim.aBlinkState = !sim.aBlinkState; }
+        aLed.className = 'led-bulb' + (sim.aBlinkState ? ' on-warn' : '');
+        $('a-led-pc13-txt').textContent = 'RÁFAGA 4x40ms · Fallo ACK';
+      } else if (sim.masterState === 3) {
+        if (now - sim.aBlinkMs >= 120) { sim.aBlinkMs = now; sim.aBlinkState = !sim.aBlinkState; }
+        aLed.className = 'led-bulb' + (sim.aBlinkState ? ' on-red' : '');
+        $('a-led-pc13-txt').textContent = 'PARPADEO 120 ms · CAN_FAULT';
+      } else if (sim.masterState === 4) {
+        if (now - sim.aBlinkMs >= 250) { sim.aBlinkMs = now; sim.aBlinkState = !sim.aBlinkState; }
+        aLed.className = 'led-bulb' + (sim.aBlinkState ? ' on-warn' : '');
+        $('a-led-pc13-txt').textContent = 'PARPADEO 250 ms · SLAVE_ERROR';
+      } else if (sim.mode === 1) {
+        aLed.className = 'led-bulb on-blue';
+        $('a-led-pc13-txt').textContent = 'ON FIJO · Modo Remoto';
+      } else {
+        aLed.className = 'led-bulb';
+        $('a-led-pc13-txt').textContent = 'OFF · Modo Local';
+      }
+
+      // Botones habilitados segun reglas reales
+      $('cmd-btn5').classList.toggle('active', sim.mode === 0);
+      $('cmd-btn6').classList.toggle('active', sim.mode === 1);
+      const blockedByCan = sim.masterState === 3 || sim.cpuHalted;
+      const inErr = sim.masterState === 4;
+      $('cmd-btn1').disabled = blockedByCan;
+      $('cmd-btn2').disabled = blockedByCan;
+      $('cmd-btn3').disabled = blockedByCan || inErr;
+      $('cmd-btn4').disabled = blockedByCan;
+      document.querySelectorAll('[data-step]').forEach((b) => {
+        b.disabled = blockedByCan || inErr || sim.mode === 0;
+      });
+    }
+
+    /* ====================================================================== */
+    /* ESCENARIOS PREDEFINIDOS                                                */
+    /* ====================================================================== */
+    function resetSim(quiet = false) {
+      Object.assign(sim, {
+        slaveState: 2, ticks: 0, homeTicks: 0, targetTicks: 0, pwm: 0,
+        dirSign: 1, initialError: 0, posStartMs: sim.simClockMs, scanPhase: 0,
+        legStartTicks: 0, ledPb0: 0, masterState: 1, mode: 0,
+        canCut: false, dropNextAck: false, cpuHalted: false,
+        motorPower: true, encA: true, encB: true, revWiring: false,
+        lastTlmRxMs: sim.simClockMs
+      });
+      $('chk-motor-pwr').checked = true;
+      $('chk-enc-a').checked = true;
+      $('chk-enc-b').checked = true;
+      $('chk-rev-wire').checked = false;
+      $('btn-cut-can').textContent = '⚡ Cortar Bus CAN';
+      $('btn-halt-cpu').textContent = '⏸ Pausar CPU (ST-Link Halt)';
+      document.querySelectorAll('.scen-btn').forEach((b) => b.classList.remove('active'));
+      if (!quiet) {
+        logEv('Sistema reiniciado en STATE_HOMED / MASTER_LOCAL.', 'log-ok');
+        setExplain('<strong>Sistema en reposo normal:</strong> <code>STATE_HOMED (2)</code> y <code>MASTER_LOCAL (1)</code>. Listo para probar comandos o inyectar fallas.');
+      }
+    }
+
+    function runScenario(id) {
+      resetSim(true);
+      document.querySelectorAll('.scen-btn').forEach((b) => b.classList.toggle('active', b.dataset.scen === id));
+
+      if (id === 'limit') {
+        sim.slaveState = 1;
+        sim.ticks = 25005;
+        setExplain('<strong>Escenario 1 · Exceso de Límite Mecánico:</strong> El eje alcanzó <code>25005 ticks ≥ MAX_ENCODER_LIMIT (25000)</code> durante movimiento. En el próximo ciclo, Placa B frena y pasa a <code>STATE_ERROR_LIMIT (4)</code> (PC13 a 100 ms), y Placa A entra en <code>MASTER_SLAVE_ERROR (4)</code> (PC13 a 250 ms). <br><em>Recuperación:</em> presioná <b>BTN2 (Fijar Home)</b> o <b>BTN1 / BTN4</b>.', 'err');
+      } else if (id === 'timeout_pos') {
+        setSystemMode(1);
+        sim.motorPower = false;
+        $('chk-motor-pwr').checked = false;
+        sendCanCmd(6, false); // +90 deg
+        sim.posStartMs = sim.simClockMs - 26500;
+        setExplain('<strong>Escenario 2 · Timeout de Posicionamiento (30 s):</strong> Se pidió <code>+90° (+630 ticks)</code> con el L298N sin energía (o eje trabado / Enc A suelto). El reloj del movimiento está en <code>26.5 s</code>: en ~3.5 s (o pulsando <b>Adelantar +30 s</b>) saltará <code>STATE_ERROR_LIMIT (4)</code>.', 'err');
+      } else if (id === 'scan_no_enc') {
+        sim.encA = false;
+        $('chk-enc-a').checked = false;
+        sendCanCmd(1, true); // Barrido
+        setExplain('<strong>Escenario 3 · Canal A (PA0) desconectado durante Barrido:</strong> <code>TIM2</code> está en modo <code>TI1</code> y no recibe flancos, así que <code>ticks</code> queda en <code>0</code> aunque el motor gire físicamente a PWM 700. Como <code>STATE_SCANNING</code> <b>no tiene timeout</b>, NO dispara ningún error y queda atascado hasta pulsar <b>BTN4 (STOP)</b>.', 'warn');
+      } else if (id === 'anti_runaway') {
+        setSystemMode(1);
+        sim.revWiring = true;
+        $('chk-rev-wire').checked = true;
+        sendCanCmd(6, false); // +90 deg (630 ticks)
+        setExplain('<strong>Escenario 4 · Auto-corrección Anti-embalamiento:</strong> Se simularon cables invertidos al pedir <code>+90°</code>. Al empezar a alejarse en lugar de acercarse, cuando <code>abs_err &gt; go_home_initial_error + 30</code>, <code>Slave_RunPositionControl()</code> invierte <code>motor_dir_sign</code> automáticamente y logra llegar al objetivo sin entrar en falla.', 'ok');
+      } else if (id === 'can_cut') {
+        sim.canCut = true;
+        $('btn-cut-can').textContent = '🔌 Reconectar Bus CAN';
+        setExplain('<strong>Escenario 5 · Corte de Bus CAN (&gt; 500 ms):</strong> Se interrumpió la telemetría <code>0x030</code>. Al superar los <code>500 ms</code>, Placa A entra en <code>MASTER_CAN_FAULT (3)</code> (PC13 parpadea cada 120 ms) y la HMI muestra <code>CAN SIN DATOS</code>. Reconectá el bus para ver la recuperación automática.', 'err');
+      } else if (id === 'ack_fail') {
+        sim.dropNextAck = true;
+        sendCanCmd(1, true);
+        setExplain('<strong>Escenario 6 · Fallo de ACK en CAN_SendMessage():</strong> Placa A intentó enviar <code>0x010</code> pero nadie confirmó ACK dentro de <code>25 ms</code>. Aborta la transmisión y ejecuta <code>Indicate_CAN_Result(0)</code> (4 conmutaciones de 40 ms en PC13).', 'warn');
+      } else if (id === 'priority') {
+        sim.slaveState = 4;
+        sim.masterState = 4;
+        sim.canCut = true;
+        $('btn-cut-can').textContent = '🔌 Reconectar Bus CAN';
+        setExplain('<strong>Escenario 7 · Prioridad de Fallas (CAN_FAULT &gt; SLAVE_ERROR):</strong> Placa B estaba en <code>STATE_ERROR_LIMIT (4)</code> y además se cortó el cable CAN. Tras 500 ms sin <code>0x030</code>, Placa A pasa de <code>MASTER_SLAVE_ERROR (4)</code> a <code>MASTER_CAN_FAULT (3)</code> porque perder el bus tiene mayor prioridad. Al reconectar CAN, vuelve a <code>MASTER_SLAVE_ERROR</code> mientras B siga en error.', 'err');
+      } else if (id === 'cpu_halt') {
+        sim.cpuHalted = true;
+        $('btn-halt-cpu').textContent = '▶ Reanudar CPU';
+        setExplain('<strong>Escenario 8 · CPU Pausada desde ST-Link (HALTED):</strong> Al pausar el Cortex-M3 con el depurador, el contador de telemetría se congela y cualquier comando escrito en RAM queda pendiente hasta reanudar el microcontrolador.', 'warn');
+      }
+    }
+
+    /* ====================================================================== */
+    /* POBLAR TABS 2, 3 Y 4                                                   */
+    /* ====================================================================== */
+    function initFSMTab() {
+      const renderList = (arr, targetId, prefix) => {
+        const cont = $(targetId);
+        arr.forEach((st) => {
+          const d = document.createElement('div');
+          d.className = `fsm-node ${st.cls}`;
+          d.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+            <strong class="mono" style="font-size:12px;">${st.code}</strong>
+            <span class="tag">${st.id}</span></div>
+            <div style="font-size:11.5px;color:var(--muted);margin-top:4px;">${st.short}</div>`;
+          d.addEventListener('click', () => {
+            document.querySelectorAll('.fsm-node').forEach((n) => n.classList.remove('selected'));
+            d.classList.add('selected');
+            showFSMDetail(st, prefix);
+          });
+          cont.appendChild(d);
+        });
+      };
+      renderList(SLAVE_STATES, 'fsm-b-nodes', 'Placa B (Esclavo)');
+      renderList(MASTER_STATES, 'fsm-a-nodes', 'Placa A (Maestro)');
+      showFSMDetail(SLAVE_STATES[4], 'Placa B (Esclavo)');
+    }
+
+    function showFSMDetail(st, prefix) {
+      $('fsm-detail-title').textContent = `${prefix} · ${st.code} (Valor = ${st.id})`;
+      const b = $('fsm-detail-badge');
+      b.textContent = st.short;
+      b.className = `badge ${st.badge}`;
+
+      const mkList = (arr) => `<ul>${arr.map((x) => `<li>${x}</li>`).join('')}</ul>`;
+      $('fsm-detail-body').innerHTML = `
+        <div class="detail-cell"><h4>Entrada y Salidas / LEDs</h4>${mkList(st.entry)}</div>
+        <div class="detail-cell"><h4>Comandos Aceptados</h4>${mkList(st.accepts)}</div>
+        <div class="detail-cell"><h4>Fallas o Alertas Posibles</h4>${mkList(st.faults)}</div>
+        <div class="detail-cell"><h4>Condiciones de Salida</h4>${mkList(st.exit)}</div>`;
+    }
+
+    function renderMatrix() {
+      const activeBtn = document.querySelector('#tab-matrix [data-filter].active');
+      const filter = activeBtn ? activeBtn.dataset.filter : 'all';
+      const q = $('matrix-search').value.trim().toLowerCase();
+
+      const subNames = {
+        slave: '<span class="badge b-info">Placa B</span>',
+        master: '<span class="badge b-warn">Placa A</span>',
+        hmi: '<span class="badge b-halt">HMI / SWD</span>',
+        hw: '<span class="badge b-muted">Hardware</span>'
+      };
+
+      const rows = MATRIX_ROWS.filter((r) => {
+        if (filter !== 'all' && r.sub !== filter) return false;
+        if (!q) return true;
+        return `${r.name} ${r.cause} ${r.effect} ${r.led} ${r.rec}`.toLowerCase().includes(q);
+      });
+
+      $('matrix-count').textContent = `${rows.length} de ${MATRIX_ROWS.length} casos`;
+      $('matrix-tbody').innerHTML = rows.map((r) => `
+        <tr>
+          <td>${subNames[r.sub]}</td>
+          <td><strong>${r.name}</strong></td>
+          <td>${r.cause}</td>
+          <td>${r.effect}</td>
+          <td>${r.led}</td>
+          <td>${r.rec}</td>
+        </tr>`).join('');
+    }
+
+    function initCodeTab() {
+      const menu = $('code-menu');
+      CODE_SNIPPETS.forEach((c, idx) => {
+        const b = document.createElement('button');
+        b.className = 'code-item' + (idx === 0 ? ' active' : '');
+        b.innerHTML = `<div class="c-file">${c.file}</div><div class="c-name">${c.title}</div>`;
+        b.addEventListener('click', () => {
+          document.querySelectorAll('.code-item').forEach((x) => x.classList.remove('active'));
+          b.classList.add('active');
+          showSnippet(c);
+        });
+        menu.appendChild(b);
+      });
+      showSnippet(CODE_SNIPPETS[0]);
+    }
+
+    function showSnippet(c) {
+      $('code-view-title').textContent = c.title;
+      $('code-view-file').textContent = c.file;
+      $('code-view-desc').textContent = c.desc;
+      $('code-view-pre').textContent = c.code;
+    }
+
+    /* ====================================================================== */
+    /* BINDINGS                                                               */
+    /* ====================================================================== */
+    document.querySelectorAll('.tab-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
+        btn.classList.add('active');
+        $(`tab-${btn.dataset.tab}`).classList.add('active');
+      });
+    });
+
+    $('cmd-btn5').addEventListener('click', () => setSystemMode(0));
+    $('cmd-btn6').addEventListener('click', () => setSystemMode(1));
+    $('cmd-btn1').addEventListener('click', () => sendCanCmd(1, sim.mode === 0));
+    $('cmd-btn2').addEventListener('click', () => sendCanCmd(2, sim.mode === 0));
+    $('cmd-btn3').addEventListener('click', () => sendCanCmd(3, sim.mode === 0));
+    $('cmd-btn4').addEventListener('click', () => sendCanCmd(4, true));
+    document.querySelectorAll('[data-step]').forEach((b) => {
+      b.addEventListener('click', () => sendCanCmd(Number(b.dataset.step), false));
+    });
+
+    $('btn-cut-can').addEventListener('click', () => {
+      sim.canCut = !sim.canCut;
+      $('btn-cut-can').textContent = sim.canCut ? '🔌 Reconectar Bus CAN' : '⚡ Cortar Bus CAN';
+      logEv(sim.canCut ? 'Bus CAN cortado manualmente.' : 'Bus CAN reconectado.', sim.canCut ? 'log-err' : 'log-ok');
+    });
+
+    $('btn-drop-ack').addEventListener('click', () => {
+      sim.dropNextAck = true;
+      logEv('Próxima transmisión CAN fallará el ACK (25 ms).', 'log-warn');
+    });
+
+    $('btn-halt-cpu').addEventListener('click', () => {
+      sim.cpuHalted = !sim.cpuHalted;
+      $('btn-halt-cpu').textContent = sim.cpuHalted ? '▶ Reanudar CPU' : '⏸ Pausar CPU (ST-Link Halt)';
+      logEv(sim.cpuHalted ? 'Depurador ST-Link pausó la CPU (HALTED).' : 'CPU reanudada (RUNNING).', 'log-warn');
+    });
+
+    $('btn-reset-sim').addEventListener('click', () => resetSim(false));
+    $('btn-clear-log').addEventListener('click', () => { $('event-log').innerHTML = ''; });
+
+    $('btn-ff-30s').addEventListener('click', () => {
+      if (sim.slaveState === 3 || sim.slaveState === 5) {
+        sim.posStartMs -= 30100;
+        logEv('Reloj de movimiento adelantado +30.1 s.', 'log-warn');
+      } else {
+        logEv('Adelantar +30 s aplica cuando estás en HOMING o POSITIONING.', 'log-info');
+      }
+    });
+
+    $('btn-ff-25k').addEventListener('click', () => {
+      sim.ticks = 25005;
+      logEv('Posición empujada a 25.005 ticks.', 'log-warn');
+    });
+
+    $('chk-motor-pwr').addEventListener('change', (e) => { sim.motorPower = e.target.checked; });
+    $('chk-enc-a').addEventListener('change', (e) => { sim.encA = e.target.checked; });
+    $('chk-enc-b').addEventListener('change', (e) => { sim.encB = e.target.checked; });
+    $('chk-rev-wire').addEventListener('change', (e) => { sim.revWiring = e.target.checked; });
+
+    document.querySelectorAll('.scen-btn').forEach((b) => {
+      b.addEventListener('click', () => runScenario(b.dataset.scen));
+    });
+
+    document.querySelectorAll('#tab-matrix [data-filter]').forEach((b) => {
+      b.addEventListener('click', () => {
+        document.querySelectorAll('#tab-matrix [data-filter]').forEach((x) => x.classList.remove('active'));
+        b.classList.add('active');
+        renderMatrix();
+      });
+    });
+    $('matrix-search').addEventListener('input', renderMatrix);
+
+    initFSMTab();
+    renderMatrix();
+    initCodeTab();
+    logEv('Simulador iniciado en STATE_HOMED / MASTER_LOCAL.', 'log-ok');
+    requestAnimationFrame(stepSimulation);
+  </script>
+</body>
+</html>

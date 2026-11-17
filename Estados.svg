@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1091.8290000000002 552.5" width="1091.8290000000002" height="552.5" style="--bg:#18181B;--fg:#F4F4F5;--line:#71717A;--muted:#A1A1AA;--surface:#27272A;--border:#3F3F46;background:var(--bg)">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap');
+  text { font-family: 'Inter', system-ui, sans-serif; }
+  svg {
+    /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
+    --_text:          var(--fg);
+    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
+    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
+    --_text-faint:    color-mix(in srgb, var(--fg) 25%, var(--bg));
+    --_line:          var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
+    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 85%, var(--bg)));
+    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
+    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
+    --_group-fill:    var(--bg);
+    --_group-hdr:     color-mix(in srgb, var(--fg) 5%, var(--bg));
+    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
+    --_key-badge:     color-mix(in srgb, var(--fg) 10%, var(--bg));
+  }
+</style>
+<defs>
+  <marker id="arrowhead" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+    <polygon points="0 0, 8 2.5, 0 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-start" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.5, 8 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+</defs>
+<polyline class="edge" data-from="_start" data-to="MASTER_INIT" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="Reset / Arranque" points="104.32349999999997,72.45 104.32349999999997,193.2" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="MASTER_INIT" data-to="MASTER_LOCAL" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="Periférico CAN iniciado" points="104.32349999999997,230.10000000000002 104.32349999999997,310.40000000000003 450.21066666666667,310.40000000000003 450.21066666666667,322.40000000000003" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="MASTER_LOCAL" data-to="MASTER_REMOTE" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="BTN6 o system_mode = 1" points="549.8073333333334,322.40000000000003 549.8073333333334,310.40000000000003 710.5830000000001,310.40000000000003 710.5830000000001,266.1 730.0370000000001,266.1 730.0370000000001,230.10000000000002" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="MASTER_REMOTE" data-to="MASTER_LOCAL" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="BTN5 o system_mode = 0" points="697.9350000000002,230.10000000000002 697.9350000000002,242.10000000000002 574.509,242.10000000000002 574.509,298.40000000000003 524.9081666666667,298.40000000000003 524.9081666666667,322.40000000000003" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="MASTER_LOCAL" data-to="MASTER_CAN_FAULT" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="Timeout CAN 0x030 (&gt; 500 ms)" points="500.009,322.40000000000003 500.009,197.8 531.1542333333334,197.8 531.1542333333334,81.35000000000001" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="MASTER_REMOTE" data-to="MASTER_CAN_FAULT" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="Timeout CAN 0x030 (&gt; 500 ms)" points="772.8396666666667,193.2 772.8396666666667,181.2 871.1153333333334,181.2 871.1153333333334,100.9 604.5466333333334,100.9 604.5466333333334,81.35000000000001" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="MASTER_CAN_FAULT" data-to="MASTER_LOCAL" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="Trama 0x030 recibida (si system_mode == 0)" points="494.45803333333345,81.35000000000001 494.45803333333345,197.8 305.147,197.8 305.147,298.40000000000003 475.10983333333337,298.40000000000003 475.10983333333337,322.40000000000003" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="MASTER_CAN_FAULT" data-to="MASTER_REMOTE" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="Trama 0x030 recibida (si system_mode == 1)" points="567.8504333333335,81.35000000000001 567.8504333333335,112.9 677.8173333333334,112.9 677.8173333333334,181.2 719.3363333333334,181.2 719.3363333333334,193.2" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="MASTER_LOCAL" data-to="MASTER_SLAVE_ERROR" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="live_motor_state == 4" points="475.10983333333337,359.3 475.10983333333337,419.30000000000007 414.88199999999995,419.30000000000007 414.88199999999995,463.6000000000001 653.0989166666668,463.6000000000001 653.0989166666668,475.6000000000001" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="MASTER_REMOTE" data-to="MASTER_SLAVE_ERROR" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="live_motor_state == 4" points="762.1390000000001,230.10000000000002 762.1390000000001,266.1 781.5930000000001,266.1 781.5930000000001,451.6000000000001 733.6049166666667,451.6000000000001 733.6049166666667,475.6000000000001" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="MASTER_SLAVE_ERROR" data-to="MASTER_LOCAL" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="live_motor_state != 4 (si system_mode == 0)" points="693.3519166666667,475.6000000000001 693.3519166666667,451.6000000000001 585.136,451.6000000000001 585.136,395.30000000000007 524.9081666666666,395.30000000000007 524.9081666666666,359.3" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="MASTER_SLAVE_ERROR" data-to="MASTER_REMOTE" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="live_motor_state != 4 (si system_mode == 1)" points="773.8579166666667,475.6000000000001 773.8579166666667,463.6000000000001 949.8470000000001,463.6000000000001 949.8470000000001,395.30000000000007 794.2410000000001,395.30000000000007 794.2410000000001,230.10000000000002" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<g class="edge-label" data-from="_start" data-to="MASTER_INIT" data-label="Reset / Arranque">
+  <rect x="55.323499999999974" y="119.9" width="97.84000000000002" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="104.24349999999998" y="135.05" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">Reset / Arranque</text>
+</g>
+<g class="edge-label" data-from="MASTER_INIT" data-to="MASTER_LOCAL" data-label="Periférico CAN iniciado">
+  <rect x="40.82349999999997" y="273.1" width="126.946" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="104.29649999999997" y="288.25" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">Periférico CAN iniciado</text>
+</g>
+<g class="edge-label" data-from="MASTER_LOCAL" data-to="MASTER_REMOTE" data-label="BTN6 o system_mode = 1">
+  <rect x="645.0830000000001" y="273.1" width="130.51000000000002" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="710.3380000000001" y="288.25" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">BTN6 o system_mode = 1</text>
+</g>
+<g class="edge-label" data-from="MASTER_REMOTE" data-to="MASTER_LOCAL" data-label="BTN5 o system_mode = 0">
+  <rect x="507.009" y="249.1" width="134.074" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="574.046" y="264.25" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">BTN5 o system_mode = 0</text>
+</g>
+<g class="edge-label" data-from="MASTER_LOCAL" data-to="MASTER_CAN_FAULT" data-label="Timeout CAN 0x030 (&gt; 500 ms)">
+  <rect x="421.009" y="204.8" width="157.24000000000004" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="499.629" y="219.95000000000002" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">Timeout CAN 0x030 (&gt; 500 ms)</text>
+</g>
+<g class="edge-label" data-from="MASTER_REMOTE" data-to="MASTER_CAN_FAULT" data-label="Timeout CAN 0x030 (&gt; 500 ms)">
+  <rect x="792.1153333333334" y="119.9" width="157.24000000000004" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="870.7353333333334" y="135.05" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">Timeout CAN 0x030 (&gt; 500 ms)</text>
+</g>
+<g class="edge-label" data-from="MASTER_CAN_FAULT" data-to="MASTER_LOCAL" data-label="Trama 0x030 recibida (si system_mode == 0)">
+  <rect x="192.64699999999993" y="261.1" width="224.362" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="304.8279999999999" y="276.25" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">Trama 0x030 recibida (si system_mode == 0)</text>
+</g>
+<g class="edge-label" data-from="MASTER_CAN_FAULT" data-to="MASTER_REMOTE" data-label="Trama 0x030 recibida (si system_mode == 1)">
+  <rect x="567.3173333333334" y="119.9" width="220.79799999999997" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="677.7163333333334" y="135.05" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">Trama 0x030 recibida (si system_mode == 1)</text>
+</g>
+<g class="edge-label" data-from="MASTER_LOCAL" data-to="MASTER_SLAVE_ERROR" data-label="live_motor_state == 4">
+  <rect x="356.38199999999995" y="426.30000000000007" width="116.25400000000002" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="414.50899999999996" y="441.45000000000005" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">live_motor_state == 4</text>
+</g>
+<g class="edge-label" data-from="MASTER_REMOTE" data-to="MASTER_SLAVE_ERROR" data-label="live_motor_state == 4">
+  <rect x="723.0930000000001" y="402.30000000000007" width="116.25400000000002" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="781.22" y="417.45000000000005" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">live_motor_state == 4</text>
+</g>
+<g class="edge-label" data-from="MASTER_SLAVE_ERROR" data-to="MASTER_LOCAL" data-label="live_motor_state != 4 (si system_mode == 0)">
+  <rect x="476.63599999999997" y="402.30000000000007" width="216.04600000000008" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="584.659" y="417.45000000000005" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">live_motor_state != 4 (si system_mode == 0)</text>
+</g>
+<g class="edge-label" data-from="MASTER_SLAVE_ERROR" data-to="MASTER_REMOTE" data-label="live_motor_state != 4 (si system_mode == 1)">
+  <rect x="843.3470000000001" y="426.30000000000007" width="212.48200000000006" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="949.5880000000001" y="441.45000000000005" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">live_motor_state != 4 (si system_mode == 1)</text>
+</g>
+<g class="node" data-id="_start" data-label="" data-shape="state-start">
+  <circle cx="104.32349999999997" cy="58.45" r="12" fill="var(--_text)" stroke="none" />
+</g>
+<g class="node" data-id="MASTER_INIT" data-label="MASTER_INIT" data-shape="rounded">
+  <rect x="40" y="193.2" width="128.647" height="36.900000000000006" rx="6" ry="6" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="104.3235" y="211.64999999999998" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">MASTER_INIT</text>
+</g>
+<g class="node" data-id="MASTER_LOCAL" data-label="MASTER_LOCAL" data-shape="rounded">
+  <rect x="425.3115" y="322.40000000000003" width="149.39499999999998" height="36.900000000000006" rx="6" ry="6" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="500.009" y="340.85" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">MASTER_LOCAL</text>
+</g>
+<g class="node" data-id="MASTER_REMOTE" data-label="MASTER_REMOTE" data-shape="rounded">
+  <rect x="665.8330000000001" y="193.2" width="160.50999999999996" height="36.900000000000006" rx="6" ry="6" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="746.0880000000001" y="211.64999999999998" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">MASTER_REMOTE</text>
+</g>
+<g class="node" data-id="MASTER_CAN_FAULT" data-label="MASTER_CAN_FAULT" data-shape="rounded">
+  <rect x="457.76183333333347" y="44.45" width="183.48099999999994" height="36.900000000000006" rx="6" ry="6" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="549.5023333333335" y="62.900000000000006" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">MASTER_CAN_FAULT</text>
+</g>
+<g class="node" data-id="MASTER_SLAVE_ERROR" data-label="MASTER_SLAVE_ERROR" data-shape="rounded">
+  <rect x="612.8459166666668" y="475.6000000000001" width="201.2649999999999" height="36.900000000000006" rx="6" ry="6" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="713.4784166666667" y="494.05000000000007" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">MASTER_SLAVE_ERROR</text>
+</g>
+</svg>

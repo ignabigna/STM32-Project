@@ -13,7 +13,7 @@
     <div class="brand">
       <div class="brand-logo">◎</div>
       <div>
-        <h1>Banco de Pruebas · Motor CAN</h1>
+        <h1> HMI · Motor y CAN</h1>
         <span class="subtitle">BP_A_Master_F · STM32F103 · SWD / OpenOCD</span>
       </div>
     </div>
@@ -31,9 +31,11 @@
     </div>
 
     <div class="conn-controls">
-      <select id="source-select" title="Fuente de datos">
+      <select id="source-select" title="Fuente de datos / Vista">
         <option value="bridge">Puente Python</option>
         <option value="demo">Simulador (demo)</option>
+        <option value="fsm">2. Máquinas de estados (FSM)</option>
+        <option value="matrix">3. Matriz completa de errores</option>
       </select>
       <input id="ws-url" type="text" spellcheck="false" title="URL WebSocket del puente">
       <button id="btn-connect" class="btn">Conectar</button>
@@ -52,11 +54,10 @@
   </div>
   <div id="stale-banner" class="banner warn hidden">
     ⚠ <strong>Sin datos del puente</strong> — la conexión WebSocket está abierta, pero no llegan muestras.
-    ¿OpenOCD está corriendo?
   </div>
 
   <!-- ===================== CONTENIDO ===================== -->
-  <main class="grid">
+  <main class="grid" id="hmi-main">
 
     <!-- KPIs -->
     <section class="card kpi">
@@ -74,8 +75,9 @@
     </section>
 
     <section class="card kpi">
-      <div class="kpi-label">Modo <span class="var-name">system_mode</span></div>
+      <div class="kpi-label">Modo / FSM A <span class="var-name">system_mode · master_state</span></div>
       <div class="kpi-value" id="kpi-mode">—</div>
+      <div class="mst-badge mono" id="kpi-master-fsm">FSM: —</div>
       <div class="kpi-sub" id="kpi-mode-sub">&nbsp;</div>
     </section>
 
@@ -132,10 +134,10 @@
           <button id="dir-neg" class="seg" type="button">↺ SENTIDO −<small>Antihorario / Atrás</small></button>
         </div>
         <div class="step-grid">
-          <button class="btn step-btn" data-deg="30" type="button"><span class="step-deg">+30°</span><small>200 ticks</small></button>
-          <button class="btn step-btn" data-deg="90" type="button"><span class="step-deg">+90°</span><small>600 ticks</small></button>
-          <button class="btn step-btn" data-deg="180" type="button"><span class="step-deg">+180°</span><small>1200 ticks</small></button>
-          <button class="btn step-btn" data-deg="360" type="button"><span class="step-deg">+360°</span><small>2400 ticks</small></button>
+          <button class="btn step-btn" data-deg="30" type="button"><span class="step-deg">+30°</span><small>210 ticks</small></button>
+          <button class="btn step-btn" data-deg="90" type="button"><span class="step-deg">+90°</span><small>630 ticks</small></button>
+          <button class="btn step-btn" data-deg="180" type="button"><span class="step-deg">+180°</span><small>1260 ticks</small></button>
+          <button class="btn step-btn" data-deg="360" type="button"><span class="step-deg">+360°</span><small>2520 ticks</small></button>
         </div>
         <div class="cmd-status" id="cmd-status">Sin comandos pendientes</div>
         <div class="control-hint" id="control-hint"></div>
@@ -192,6 +194,74 @@
       </div>
     </section>
   </main>
+
+  <!-- ===================== VISTA 2: MÁQUINAS DE ESTADOS (FSM) ===================== -->
+  <section id="view-fsm" class="study-view hidden">
+    <div class="study-grid-2">
+      <section class="card">
+        <div class="card-head">
+          <h2>FSM Nodo Esclavo · Motor (BP_B_Salve_F)</h2>
+          <span class="tag mono">SystemState_t (0..5)</span>
+        </div>
+        <div class="fsm-nodes" id="fsm-b-nodes"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>FSM Nodo Maestro · Supervisor (BP_A_Master_F)</h2>
+          <span class="tag mono">MasterState_t (0..4)</span>
+        </div>
+        <div class="fsm-nodes" id="fsm-a-nodes"></div>
+      </section>
+    </div>
+
+    <section class="card">
+      <div class="card-head">
+        <h2 id="fsm-detail-title">Seleccioná un estado arriba para ver su ficha técnica completa</h2>
+        <div class="card-tools">
+          <span class="m-badge b-info" id="fsm-detail-badge">FSM</span>
+        </div>
+      </div>
+      <div class="fsm-detail-grid" id="fsm-detail-body"></div>
+    </section>
+  </section>
+
+  <!-- ===================== VISTA 3: MATRIZ COMPLETA DE ERRORES ===================== -->
+  <section id="view-matrix" class="study-view hidden">
+    <section class="card">
+      <div class="card-head">
+        <h2>Inventario Completo de Estados de Error, Fallas, Alertas y Casos Especiales</h2>
+        <div class="card-tools">
+          <span class="tag mono" id="matrix-count">14 casos documentados</span>
+        </div>
+      </div>
+
+      <div class="matrix-filters">
+        <button type="button" class="btn small active" data-filter="all">Todos</button>
+        <button type="button" class="btn small" data-filter="slave">Placa B (Motor/Encoder)</button>
+        <button type="button" class="btn small" data-filter="master">Placa A (Maestro/CAN)</button>
+        <button type="button" class="btn small" data-filter="hmi">Puente / HMI Web</button>
+        <button type="button" class="btn small" data-filter="hw">Hardware / Sin Detección</button>
+        <input type="text" id="matrix-search" placeholder="Buscar por nombre, pin, ms o causa...">
+      </div>
+
+      <div class="table-wrap">
+        <table class="matrix-table">
+          <thead>
+            <tr>
+              <th>Subsistema</th>
+              <th>Estado / Alerta</th>
+              <th>Causa y Umbral Exacto</th>
+              <th>Efecto en el Sistema</th>
+              <th>Señalización (LED / HMI)</th>
+              <th>Recuperación</th>
+            </tr>
+          </thead>
+          <tbody id="matrix-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+  </section>
 
   <!-- ===================== AJUSTES ===================== -->
   <dialog id="settings-dialog">

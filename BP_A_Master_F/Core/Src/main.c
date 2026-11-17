@@ -28,15 +28,22 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+typedef enum {
+  MASTER_INIT        = 0,  /* Inicializacion de perifericos y espera de enlace CAN */
+  MASTER_LOCAL       = 1,  /* Operacion normal por pulsadores fisicos BTN1..BTN4 (LED OFF) */
+  MASTER_REMOTE      = 2,  /* Operacion normal desde PC / HMI via remote_cmd + BTN4 (LED ON) */
+  MASTER_CAN_FAULT   = 3,  /* Timeout de telemetria CAN (> 500 ms sin tramas 0x030 de Placa B) */
+  MASTER_SLAVE_ERROR = 4   /* Placa B reporto falla (live_motor_state == 4) */
+} MasterState_t;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 /* Relacion de transmision en Placa B:
  * Encoder 30 PPR en modo TI1 (x2) = 60 ticks/vuelta de motor.
- * Tornillo sin fin (1 entrada) + corona de 40 dientes = 2400 ticks por vuelta de engranaje (360 grados). */
-#define TICKS_PER_GEAR_REV     2400
+ * Tornillo sin fin (1 entrada) + corona de 42 dientes = 2520 ticks por vuelta de engranaje (360 grados). */
+#define TICKS_PER_GEAR_REV        2520  /* 60 ticks/vuelta motor x 42 dientes */
+#define CAN_TELEMETRY_TIMEOUT_MS  500   /* Tiempo maximo sin recibir 0x030 antes de declarar MASTER_CAN_FAULT */
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -95,10 +102,15 @@ volatile uint8_t remote_cmd = 0;                        /* 1..4: Botones, 5..8: 
 volatile OperatingMode_t last_system_mode = MODE_LOCAL; /* Detector de cambio desde Live Expressions */
 
 /* --- TELEMETRIA DE POSICION Y ESTADO DESDE PLACA B (FASE B) --- */
-volatile int32_t live_position = 0;       /* Posicion real del engranaje en grados (360 grados = 2400 ticks) */
+volatile int32_t live_position = 0;       /* Posicion real del engranaje en grados (360 grados = 2520 ticks) */
 volatile int32_t live_position_ticks = 0; /* Posicion cruda en pulsos de encoder recibidos por CAN */
-volatile uint8_t live_motor_state = 0;    /* Estado del motor: 0=IDLE, 1=SCANNING, 2=HOMED, 3=HOMING, 4=ERROR */
+volatile uint8_t live_motor_state = 0;    /* Estado del motor: 0=IDLE, 1=SCANNING, 2=HOMED, 3=HOMING, 4=ERROR, 5=POSITIONING */
 volatile uint32_t telemetry_counter = 0;  /* Contador de paquetes de telemetria recibidos */
+
+/* --- MAQUINA DE ESTADOS DE SUPERVISION (FASE C) --- */
+volatile MasterState_t master_state = MASTER_INIT; /* 0=INIT, 1=LOCAL, 2=REMOTE, 3=CAN_FAULT, 4=SLAVE_ERROR */
+volatile uint32_t last_rx_telemetry_tick = 0;      /* Marca de tiempo (ms) del ultimo paquete 0x030 recibido */
+uint32_t fault_blink_tick = 0;                     /* Temporizador no bloqueante para parpadeo de falla en PC13 */
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -109,6 +121,9 @@ uint8_t Button_Edge_Pressed(GPIO_TypeDef* port, uint16_t pin, uint8_t *last_pin_
 void Indicate_CAN_Result(uint8_t ack_ok);
 void CAN_Filter_Config(void);
 void CAN_ProcessRxMessages(void);
+void Master_EnterState(MasterState_t next_state);
+void Master_SyncModeLed(OperatingMode_t mode);
+void Master_PollModeSelection(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -263,6 +278,7 @@ void CAN_ProcessRxMessages(void)
           live_motor_state = rxData[4];
         }
         telemetry_counter++;
+        last_rx_telemetry_tick = HAL_GetTick();
       }
     }
     else
@@ -279,6 +295,82 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcanInstance)
 {
   UNUSED(hcanInstance);
   CAN_ProcessRxMessages();
+}
+
+/**
+  * @brief  Ejecuta las acciones de entrada (Entry) y actualiza el estado formal del Master (Placa A)
+  */
+void Master_EnterState(MasterState_t next_state)
+{
+  master_state = next_state;
+
+  switch (next_state)
+  {
+    case MASTER_LOCAL:
+      current_led_state = 0;
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);   /* PC13 OFF en Modo Local */
+      break;
+
+    case MASTER_REMOTE:
+      current_led_state = 1;
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET); /* PC13 ON en Modo Remoto */
+      break;
+
+    case MASTER_CAN_FAULT:
+    case MASTER_SLAVE_ERROR:
+      fault_blink_tick = HAL_GetTick();
+      break;
+
+    case MASTER_INIT:
+    default:
+      break;
+  }
+}
+
+/**
+  * @brief  Sincroniza el modo Local/Remoto y transmite el estado del LED PB0 (CAN 0x020) a Placa B
+  */
+void Master_SyncModeLed(OperatingMode_t mode)
+{
+  system_mode = (mode == MODE_REMOTE) ? MODE_REMOTE : MODE_LOCAL;
+  last_system_mode = system_mode;
+  current_led_state = (system_mode == MODE_REMOTE) ? 1 : 0;
+
+  uint8_t ok = CAN_SendMessage(0x020, current_led_state);
+  Indicate_CAN_Result(ok);
+
+  if (master_state == MASTER_LOCAL || master_state == MASTER_REMOTE)
+  {
+    Master_EnterState((system_mode == MODE_REMOTE) ? MASTER_REMOTE : MASTER_LOCAL);
+  }
+}
+
+/**
+  * @brief  Evalua cambios de modo desde PC/HMI (system_mode) y pulsadores fisicos BTN5 (Local) / BTN6 (Remoto)
+  */
+void Master_PollModeSelection(void)
+{
+  /* 1. Cambio escrito desde la PC (HMI Web / Live Expressions) */
+  if (system_mode != last_system_mode)
+  {
+    Master_SyncModeLed(system_mode);
+  }
+
+  /* 2. Pulsador fisico BTN5 (PA10 o PB10): MODO LOCAL -> LED PB0 y PC13 APAGADOS */
+  uint8_t b5_pa = Button_Edge_Pressed(BTN5_GPIO_Port, BTN5_Pin, &btn5_pa_last_level, &btn5_pa_was_pressed, &btn5_pa_debounce_time);
+  uint8_t b5_pb = Button_Edge_Pressed(GPIOB, GPIO_PIN_10, &btn5_pb_last_level, &btn5_pb_was_pressed, &btn5_pb_debounce_time);
+  if (b5_pa || b5_pb)
+  {
+    Master_SyncModeLed(MODE_LOCAL);
+  }
+
+  /* 3. Pulsador fisico BTN6 (PA11 o PB11): MODO REMOTO -> LED PB0 y PC13 ENCENDIDOS */
+  uint8_t b6_pa = Button_Edge_Pressed(BTN6_GPIO_Port, BTN6_Pin, &btn6_pa_last_level, &btn6_pa_was_pressed, &btn6_pa_debounce_time);
+  uint8_t b6_pb = Button_Edge_Pressed(GPIOB, GPIO_PIN_11, &btn6_pb_last_level, &btn6_pb_was_pressed, &btn6_pb_debounce_time);
+  if (b6_pa || b6_pb)
+  {
+    Master_SyncModeLed(MODE_REMOTE);
+  }
 }
 /* USER CODE END 0 */
 
@@ -333,9 +425,11 @@ int main(void)
     HAL_Delay(100);
   }
 
-  /* Inicialmente apagado reflejando el LED en PB0 apagado */
+  /* Inicialmente en estado MASTER_INIT con LED en PB0 apagado */
   current_led_state = 0;
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+  last_rx_telemetry_tick = HAL_GetTick();
+  master_state = MASTER_INIT;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -345,114 +439,205 @@ int main(void)
     /* 0. Procesar mensajes CAN pendientes en FIFO0 (respaldo por polling + interrupcion) */
     CAN_ProcessRxMessages();
 
-    /* 1. Sincronizacion si el modo se cambia directamente desde la PC (Live Expressions) */
-    if (system_mode != last_system_mode)
+    /* 1. Evaluar selectores de modo (BTN5 Local, BTN6 Remoto y variable system_mode desde HMI/IDE) */
+    Master_PollModeSelection();
+
+    /* 2. MAQUINA DE ESTADOS FORMAL DE SUPERVISION (FASE C) */
+    switch (master_state)
     {
-      if (system_mode == MODE_REMOTE)
-      {
-        current_led_state = 1;
-        uint8_t ok = CAN_SendMessage(0x020, 0x01);
-        Indicate_CAN_Result(ok);
-      }
-      else
-      {
-        system_mode = MODE_LOCAL;
-        current_led_state = 0;
-        uint8_t ok = CAN_SendMessage(0x020, 0x00);
-        Indicate_CAN_Result(ok);
-      }
-      last_system_mode = system_mode;
-    }
+      case MASTER_INIT:
+        last_rx_telemetry_tick = HAL_GetTick();
+        Master_EnterState((system_mode == MODE_REMOTE) ? MASTER_REMOTE : MASTER_LOCAL);
+        break;
 
-    /* 2. Pulsadores fisicos de seleccion de modo (BTN5 = Modo Local, BTN6 = Modo Remoto) */
-    /* BTN5 (PA10 o PB10): MODO LOCAL -> LED PB0 y PC13 APAGADOS */
-    uint8_t b5_pa = Button_Edge_Pressed(BTN5_GPIO_Port, BTN5_Pin, &btn5_pa_last_level, &btn5_pa_was_pressed, &btn5_pa_debounce_time);
-    uint8_t b5_pb = Button_Edge_Pressed(GPIOB, GPIO_PIN_10, &btn5_pb_last_level, &btn5_pb_was_pressed, &btn5_pb_debounce_time);
-    if (b5_pa || b5_pb)
-    {
-      system_mode = MODE_LOCAL;
-      last_system_mode = MODE_LOCAL;
-      current_led_state = 0;
-      uint8_t ok = CAN_SendMessage(0x020, 0x00);
-      Indicate_CAN_Result(ok);
-    }
+      case MASTER_LOCAL:
+        /* 2.1 Supervision de enlace CAN (watchdog de 500 ms sobre telemetria 0x030) */
+        if ((HAL_GetTick() - last_rx_telemetry_tick) > CAN_TELEMETRY_TIMEOUT_MS)
+        {
+          Master_EnterState(MASTER_CAN_FAULT);
+          break;
+        }
+        /* 2.2 Supervision de estado de falla en Placa B */
+        if (live_motor_state == 4)
+        {
+          Master_EnterState(MASTER_SLAVE_ERROR);
+          break;
+        }
+        /* 2.3 Si cambio el modo a Remoto, transicionar a MASTER_REMOTE */
+        if (system_mode == MODE_REMOTE)
+        {
+          Master_EnterState(MASTER_REMOTE);
+          break;
+        }
 
-    /* BTN6 (PA11 o PB11): MODO REMOTO -> LED PB0 y PC13 ENCENDIDOS */
-    uint8_t b6_pa = Button_Edge_Pressed(BTN6_GPIO_Port, BTN6_Pin, &btn6_pa_last_level, &btn6_pa_was_pressed, &btn6_pa_debounce_time);
-    uint8_t b6_pb = Button_Edge_Pressed(GPIOB, GPIO_PIN_11, &btn6_pb_last_level, &btn6_pb_was_pressed, &btn6_pb_debounce_time);
-    if (b6_pa || b6_pb)
-    {
-      system_mode = MODE_REMOTE;
-      last_system_mode = MODE_REMOTE;
-      current_led_state = 1;
-      uint8_t ok = CAN_SendMessage(0x020, 0x01);
-      Indicate_CAN_Result(ok);
-    }
+        /* --- MODO LOCAL: COMANDOS DESDE LOS BOTONES FISICOS (BTN1..BTN4) --- */
+        /* BTN1 (PB12): Iniciar barrido oscilante de 2 vueltas */
+        if (Button_Edge_Pressed(BTN1_GPIO_Port, BTN1_Pin, &btn1_last_level, &btn1_was_pressed, &btn1_debounce_time))
+        {
+          uint8_t ok = CAN_SendMessage(0x010, 0x01);
+          Indicate_CAN_Result(ok);
+        }
 
-    /* 3. Ejecucion de Comandos segun el Modo Activo */
-    if (system_mode == MODE_LOCAL)
-    {
-      /* --- MODO LOCAL: COMANDOS DESDE LOS BOTONES FISICOS (BTN1..BTN4) --- */
-      /* BTN1 (PB12): Iniciar barrido oscilante de 2 vueltas */
-      if (Button_Edge_Pressed(BTN1_GPIO_Port, BTN1_Pin, &btn1_last_level, &btn1_was_pressed, &btn1_debounce_time))
-      {
-        uint8_t ok = CAN_SendMessage(0x010, 0x01);
-        Indicate_CAN_Result(ok);
-      }
+        /* BTN2 (PB13): Fijar posicion Home */
+        if (Button_Edge_Pressed(BTN2_GPIO_Port, BTN2_Pin, &btn2_last_level, &btn2_was_pressed, &btn2_debounce_time))
+        {
+          uint8_t ok = CAN_SendMessage(0x010, 0x02);
+          Indicate_CAN_Result(ok);
+        }
 
-      /* BTN2 (PB13): Fijar posicion Home */
-      if (Button_Edge_Pressed(BTN2_GPIO_Port, BTN2_Pin, &btn2_last_level, &btn2_was_pressed, &btn2_debounce_time))
-      {
-        uint8_t ok = CAN_SendMessage(0x010, 0x02);
-        Indicate_CAN_Result(ok);
-      }
+        /* BTN3 (PB14): Regresar a posicion Home */
+        if (Button_Edge_Pressed(BTN3_GPIO_Port, BTN3_Pin, &btn3_last_level, &btn3_was_pressed, &btn3_debounce_time))
+        {
+          uint8_t ok = CAN_SendMessage(0x010, 0x03);
+          Indicate_CAN_Result(ok);
+        }
 
-      /* BTN3 (PB14): Regresar a posicion Home */
-      if (Button_Edge_Pressed(BTN3_GPIO_Port, BTN3_Pin, &btn3_last_level, &btn3_was_pressed, &btn3_debounce_time))
-      {
-        uint8_t ok = CAN_SendMessage(0x010, 0x03);
-        Indicate_CAN_Result(ok);
-      }
+        /* BTN4 (PB15): Parada de emergencia / Stop */
+        if (Button_Edge_Pressed(BTN4_GPIO_Port, BTN4_Pin, &btn4_last_level, &btn4_was_pressed, &btn4_debounce_time))
+        {
+          uint8_t ok = CAN_SendMessage(0x010, 0x04);
+          Indicate_CAN_Result(ok);
+        }
 
-      /* BTN4 (PB15): Parada de emergencia / Stop */
-      if (Button_Edge_Pressed(BTN4_GPIO_Port, BTN4_Pin, &btn4_last_level, &btn4_was_pressed, &btn4_debounce_time))
-      {
-        uint8_t ok = CAN_SendMessage(0x010, 0x04);
-        Indicate_CAN_Result(ok);
-      }
+        /* En modo local se descartan comandos remotos */
+        if (remote_cmd != 0)
+        {
+          remote_cmd = 0;
+        }
+        break;
 
-      /* En modo local se descartan comandos remotos */
-      if (remote_cmd != 0)
-      {
-        remote_cmd = 0;
-      }
-    }
-    else
-    {
-      /* --- MODO REMOTO: COMANDOS DESDE LA PC / HMI ---
-       *   1: Barrido (BTN1)        5: Giro +30° (+200 ticks)     9: Giro -30° (-200 ticks)
-       *   2: Fijar Home (BTN2)     6: Giro +90° (+600 ticks)    10: Giro -90° (-600 ticks)
-       *   3: Ir a Home (BTN3)      7: Giro +180° (+1200 ticks)  11: Giro -180° (-1200 ticks)
-       *   4: STOP (BTN4)           8: Giro +360° (+2400 ticks)  12: Giro -360° (-2400 ticks)
-       */
-      if (remote_cmd >= 1 && remote_cmd <= 12)
-      {
-        uint8_t cmd_to_send = remote_cmd;
-        remote_cmd = 0;
-        uint8_t ok = CAN_SendMessage(0x010, cmd_to_send);
-        Indicate_CAN_Result(ok);
-      }
-      else if (remote_cmd != 0)
-      {
-        remote_cmd = 0;
-      }
+      case MASTER_REMOTE:
+        /* 2.1 Supervision de enlace CAN (watchdog de 500 ms sobre telemetria 0x030) */
+        if ((HAL_GetTick() - last_rx_telemetry_tick) > CAN_TELEMETRY_TIMEOUT_MS)
+        {
+          Master_EnterState(MASTER_CAN_FAULT);
+          break;
+        }
+        /* 2.2 Supervision de estado de falla en Placa B */
+        if (live_motor_state == 4)
+        {
+          Master_EnterState(MASTER_SLAVE_ERROR);
+          break;
+        }
+        /* 2.3 Si cambio el modo a Local, transicionar a MASTER_LOCAL */
+        if (system_mode == MODE_LOCAL)
+        {
+          Master_EnterState(MASTER_LOCAL);
+          break;
+        }
 
-      /* Seguridad de banco: el boton fisico BTN4 (Stop) siempre frena ante emergencias */
-      if (Button_Edge_Pressed(BTN4_GPIO_Port, BTN4_Pin, &btn4_last_level, &btn4_was_pressed, &btn4_debounce_time))
-      {
-        uint8_t ok = CAN_SendMessage(0x010, 0x04);
-        Indicate_CAN_Result(ok);
-      }
+        /* --- MODO REMOTO: COMANDOS DESDE LA PC / HMI ---
+         *   1: Barrido (BTN1)        5: Giro +30° (+210 ticks)     9: Giro -30° (-210 ticks)
+         *   2: Fijar Home (BTN2)     6: Giro +90° (+630 ticks)    10: Giro -90° (-630 ticks)
+         *   3: Ir a Home (BTN3)      7: Giro +180° (+1260 ticks)  11: Giro -180° (-1260 ticks)
+         *   4: STOP (BTN4)           8: Giro +360° (+2520 ticks)  12: Giro -360° (-2520 ticks)
+         */
+        if (remote_cmd >= 1 && remote_cmd <= 12)
+        {
+          uint8_t cmd_to_send = remote_cmd;
+          remote_cmd = 0;
+          uint8_t ok = CAN_SendMessage(0x010, cmd_to_send);
+          Indicate_CAN_Result(ok);
+        }
+        else if (remote_cmd != 0)
+        {
+          remote_cmd = 0;
+        }
+
+        /* Seguridad de banco: el boton fisico BTN4 (Stop) siempre frena ante emergencias */
+        if (Button_Edge_Pressed(BTN4_GPIO_Port, BTN4_Pin, &btn4_last_level, &btn4_was_pressed, &btn4_debounce_time))
+        {
+          uint8_t ok = CAN_SendMessage(0x010, 0x04);
+          Indicate_CAN_Result(ok);
+        }
+        break;
+
+      case MASTER_CAN_FAULT:
+        /* Descartar comandos remotos pendientes mientras el enlace CAN este caido */
+        if (remote_cmd != 0)
+        {
+          remote_cmd = 0;
+        }
+
+        /* Parpadeo rapido no bloqueante en PC13 indicando pérdida de enlace CAN */
+        if ((HAL_GetTick() - fault_blink_tick) >= 120)
+        {
+          fault_blink_tick = HAL_GetTick();
+          HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+        }
+
+        /* Recuperacion automatica apenas se reanude la recepcion de telemetria 0x030 */
+        if ((HAL_GetTick() - last_rx_telemetry_tick) <= CAN_TELEMETRY_TIMEOUT_MS)
+        {
+          CAN_SendMessage(0x020, current_led_state);
+          if (live_motor_state == 4)
+          {
+            Master_EnterState(MASTER_SLAVE_ERROR);
+          }
+          else
+          {
+            Master_EnterState((system_mode == MODE_REMOTE) ? MASTER_REMOTE : MASTER_LOCAL);
+          }
+        }
+        break;
+
+      case MASTER_SLAVE_ERROR:
+        /* Si ademas se pierde el enlace CAN, priorizar MASTER_CAN_FAULT */
+        if ((HAL_GetTick() - last_rx_telemetry_tick) > CAN_TELEMETRY_TIMEOUT_MS)
+        {
+          Master_EnterState(MASTER_CAN_FAULT);
+          break;
+        }
+
+        /* Parpadeo de advertencia en PC13 mientras Placa B permanezca en STATE_ERROR_LIMIT (4) */
+        if ((HAL_GetTick() - fault_blink_tick) >= 250)
+        {
+          fault_blink_tick = HAL_GetTick();
+          HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+        }
+
+        /* Permitir enviar STOP (BTN4 fisico) o comandos de desbloqueo (1, 2, 4) para limpiar la falla en Placa B */
+        if (Button_Edge_Pressed(BTN4_GPIO_Port, BTN4_Pin, &btn4_last_level, &btn4_was_pressed, &btn4_debounce_time))
+        {
+          uint8_t ok = CAN_SendMessage(0x010, 0x04);
+          Indicate_CAN_Result(ok);
+        }
+        if (system_mode == MODE_LOCAL)
+        {
+          if (Button_Edge_Pressed(BTN1_GPIO_Port, BTN1_Pin, &btn1_last_level, &btn1_was_pressed, &btn1_debounce_time))
+          {
+            Indicate_CAN_Result(CAN_SendMessage(0x010, 0x01));
+          }
+          if (Button_Edge_Pressed(BTN2_GPIO_Port, BTN2_Pin, &btn2_last_level, &btn2_was_pressed, &btn2_debounce_time))
+          {
+            Indicate_CAN_Result(CAN_SendMessage(0x010, 0x02));
+          }
+          remote_cmd = 0;
+        }
+        else if (remote_cmd != 0)
+        {
+          if (remote_cmd == 1 || remote_cmd == 2 || remote_cmd == 4)
+          {
+            uint8_t cmd_to_send = remote_cmd;
+            remote_cmd = 0;
+            Indicate_CAN_Result(CAN_SendMessage(0x010, cmd_to_send));
+          }
+          else
+          {
+            remote_cmd = 0;
+          }
+        }
+
+        /* Cuando Placa B sale de STATE_ERROR_LIMIT (4), retornar al estado operativo activo */
+        if (live_motor_state != 4)
+        {
+          Master_EnterState((system_mode == MODE_REMOTE) ? MASTER_REMOTE : MASTER_LOCAL);
+        }
+        break;
+
+      default:
+        Master_EnterState((system_mode == MODE_REMOTE) ? MASTER_REMOTE : MASTER_LOCAL);
+        break;
     }
 
     HAL_Delay(5);

@@ -30,11 +30,12 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 typedef enum {
-  STATE_IDLE = 0,
-  STATE_SCANNING,
-  STATE_HOMING_LOCKED,
-  STATE_GO_TO_HOME,
-  STATE_ERROR_LIMIT
+  STATE_IDLE        = 0,  /* Detenido fuera de la zona Home (|pos| > +-5 grados) */
+  STATE_SCANNING    = 1,  /* Barrido oscilante de +-2 vueltas */
+  STATE_HOMED       = 2,  /* Detenido dentro de la zona Home (+-8 grados / +-56 ticks) */
+  STATE_HOMING      = 3,  /* Retornando activamente al origen Home (0 grados) */
+  STATE_ERROR_LIMIT = 4,  /* Falla por limite mecanico o timeout de movimiento */
+  STATE_POSITIONING = 5   /* Posicionamiento relativo por angulo (+-30/90/180/360 grados) */
 } SystemState_t;
 
 typedef enum {
@@ -52,16 +53,16 @@ typedef enum {
 /* En modo TI1 (x2) se generan 2 cuentas en el timer por cada pulso */
 #define TICKS_PER_MOTOR_REV    (ENCODER_PPR * 2) /* 60 cuentas por 1 vuelta del motor */
 
-/* Transmisión: Tornillo sin fin (1 entrada) -> Engranaje de 40 dientes (Radio = 15 mm)
- * 1 vuelta del tornillo sin fin avanza 1 diente del engranaje (relación 40:1).
- * Por lo tanto, 1 vuelta del engranaje = 40 vueltas del motor = 2400 ticks. */
+/* Transmisión: Tornillo sin fin (1 entrada) -> Engranaje de 42 dientes (Radio = 15 mm)
+ * 1 vuelta del tornillo sin fin avanza 1 diente del engranaje (relación 42:1).
+ * Por lo tanto, 1 vuelta del engranaje = 42 vueltas del motor = 2520 ticks. */
 #define WORM_STARTS            1      /* Entradas del tornillo sin fin */
-#define GEAR_TEETH             40     /* Dientes del engranaje conducido */
+#define GEAR_TEETH             42     /* Dientes del engranaje conducido (contados fisicamente: 42, no 40) */
 #define GEAR_RADIUS_MM         15     /* Radio del engranaje (centro a cabeza de diente): 15 mm */
-#define TICKS_PER_GEAR_REV     ((TICKS_PER_MOTOR_REV * GEAR_TEETH) / WORM_STARTS) /* 2400 cuentas por vuelta de engranaje */
+#define TICKS_PER_GEAR_REV     ((TICKS_PER_MOTOR_REV * GEAR_TEETH) / WORM_STARTS) /* 2520 cuentas por vuelta de engranaje */
 
 #define SWEEP_GEAR_REVS        2      /* 2 vueltas completas del ENGRANAJE hacia cada sentido */
-#define SWEEP_TARGET_TICKS     (TICKS_PER_GEAR_REV * SWEEP_GEAR_REVS) /* 4800 ticks (80 vueltas de motor) */
+#define SWEEP_TARGET_TICKS     (TICKS_PER_GEAR_REV * SWEEP_GEAR_REVS) /* 5040 ticks (84 vueltas de motor) */
 #define SWEEP_PAUSE_MS         1000   /* 1 segundo de retardo antes de cambiar de sentido */
 #define SWEEP_DUTY             700    /* Fuerza de barrido en 700 (70% sobre 999) */
 
@@ -69,11 +70,12 @@ typedef enum {
 #define KICK_DUTY              950    /* Golpe inicial de fuerza (95% sobre 999) al salir del reposo */
 #define KICK_TIME_MS           35     /* Duración del empujón inicial en milisegundos */
 
-/* Límite de seguridad amplio para permitir las 80 vueltas de motor (4800 ticks) con holgura */
+/* Límite de seguridad amplio para permitir las 84 vueltas de motor (5040 ticks) con holgura */
 #define MAX_ENCODER_LIMIT      25000
 
 /* --- PARÁMETROS DEL CONTROLADOR DE POSICIÓN (IR A HOME) --- */
 #define POS_DEADBAND_TICKS     5      /* Tolerancia de llegada en pulsos */
+#define HOMED_TOLERANCE_TICKS  ((8 * TICKS_PER_GEAR_REV) / 360) /* Zona Home: +-8 grados = +-56 ticks (contempla inercia) */
 #define POS_MIN_DUTY           550    /* Fuerza mínima para vencer fricción en retorno */
 #define POS_MAX_DUTY           700    /* Velocidad máxima de retorno */
 #define GO_HOME_TIMEOUT_MS     30000  /* 30 s de tiempo máximo para desandar hasta 2 vueltas de engranaje */
@@ -90,7 +92,7 @@ typedef enum {
 
 /* USER CODE BEGIN PV */
 /* Estado del sistema y variables de posición */
-volatile SystemState_t current_state = STATE_IDLE;
+volatile SystemState_t current_state = STATE_HOMED;
 volatile int32_t total_encoder_ticks = 0;   /* Posición acumulada en 32 bits (anti-desbordamiento) */
 volatile int16_t last_timer_cnt = 0;        /* Última lectura directa de CNT (16 bits) */
 volatile int32_t home_position = 0;         /* Posición de referencia fijada */
@@ -116,8 +118,9 @@ volatile uint8_t can_btn3_flag = 0;
 volatile uint8_t can_btn4_flag = 0;
 volatile int32_t can_step_ticks = 0;        /* Pasos relativos solicitados por CAN (+ o - ticks) */
 
-/* Temporizador no bloqueante para envio de telemetria CAN (Fase B) */
+/* Temporizadores no bloqueantes para telemetria CAN (Fase B) y parpadeo de falla (Fase C) */
 uint32_t last_telemetry_tick = 0;
+uint32_t error_blink_tick = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -128,6 +131,11 @@ void Encoder_Update(void);
 void CAN_Filter_Config(void);
 void CAN_ProcessRxMessages(void);
 void CAN_SendTelemetry(void);
+void Slave_EnterState(SystemState_t next_state);
+void Slave_TransitionToRest(void);
+void Slave_CalibrateHome(void);
+void Slave_StartMoveToTarget(int32_t new_target, SystemState_t move_state);
+void Slave_RunPositionControl(int32_t step_req, uint8_t btn2, uint8_t btn3);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -248,15 +256,15 @@ void CAN_ProcessRxMessages(void)
             case 0x03: can_btn3_flag = 1; break;
             case 0x04: can_btn4_flag = 1; break;
             /* Giros relativos en sentido positivo (+30°, +90°, +180°, +360°) */
-            case 0x05: can_step_ticks =  (30  * TICKS_PER_GEAR_REV) / 360; break; /* +200 ticks */
-            case 0x06: can_step_ticks =  (90  * TICKS_PER_GEAR_REV) / 360; break; /* +600 ticks */
-            case 0x07: can_step_ticks =  (180 * TICKS_PER_GEAR_REV) / 360; break; /* +1200 ticks */
-            case 0x08: can_step_ticks =  (360 * TICKS_PER_GEAR_REV) / 360; break; /* +2400 ticks */
+            case 0x05: can_step_ticks =  (30  * TICKS_PER_GEAR_REV) / 360; break; /* +210 ticks */
+            case 0x06: can_step_ticks =  (90  * TICKS_PER_GEAR_REV) / 360; break; /* +630 ticks */
+            case 0x07: can_step_ticks =  (180 * TICKS_PER_GEAR_REV) / 360; break; /* +1260 ticks */
+            case 0x08: can_step_ticks =  (360 * TICKS_PER_GEAR_REV) / 360; break; /* +2520 ticks */
             /* Giros relativos en sentido negativo (-30°, -90°, -180°, -360°) */
-            case 0x09: can_step_ticks = -(30  * TICKS_PER_GEAR_REV) / 360; break; /* -200 ticks */
-            case 0x0A: can_step_ticks = -(90  * TICKS_PER_GEAR_REV) / 360; break; /* -600 ticks */
-            case 0x0B: can_step_ticks = -(180 * TICKS_PER_GEAR_REV) / 360; break; /* -1200 ticks */
-            case 0x0C: can_step_ticks = -(360 * TICKS_PER_GEAR_REV) / 360; break; /* -2400 ticks */
+            case 0x09: can_step_ticks = -(30  * TICKS_PER_GEAR_REV) / 360; break; /* -210 ticks */
+            case 0x0A: can_step_ticks = -(90  * TICKS_PER_GEAR_REV) / 360; break; /* -630 ticks */
+            case 0x0B: can_step_ticks = -(180 * TICKS_PER_GEAR_REV) / 360; break; /* -1260 ticks */
+            case 0x0C: can_step_ticks = -(360 * TICKS_PER_GEAR_REV) / 360; break; /* -2520 ticks */
             default: break;
           }
         }
@@ -320,6 +328,164 @@ void CAN_SendTelemetry(void)
 
   HAL_CAN_AddTxMessage(&hcan, &txHeader, txData, &txMailbox);
 }
+
+/**
+  * @brief  Ejecuta las acciones de entrada (Entry) y cambia formalmente de estado en la FSM de Placa B
+  */
+void Slave_EnterState(SystemState_t next_state)
+{
+  current_state = next_state;
+
+  switch (next_state)
+  {
+    case STATE_IDLE:
+    case STATE_HOMED:
+      Motor_SetSpeed(0);
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET); /* LED PC13 apagado en reposo */
+      break;
+
+    case STATE_SCANNING:
+      leg_start_ticks = total_encoder_ticks;
+      scan_phase = SCAN_PHASE_FORWARD;
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET); /* LED PC13 encendido en movimiento */
+      Motor_SetSpeed(SWEEP_DUTY);
+      break;
+
+    case STATE_HOMING:
+    case STATE_POSITIONING:
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET); /* LED PC13 encendido en movimiento */
+      break;
+
+    case STATE_ERROR_LIMIT:
+      Motor_SetSpeed(0);
+      error_blink_tick = HAL_GetTick();
+      break;
+
+    default:
+      Motor_SetSpeed(0);
+      current_state = STATE_IDLE;
+      break;
+  }
+}
+
+/**
+  * @brief  Frena el motor y selecciona automaticamente STATE_HOMED (si esta dentro de +-5 grados) o STATE_IDLE
+  */
+void Slave_TransitionToRest(void)
+{
+  if (abs(total_encoder_ticks - home_position) <= HOMED_TOLERANCE_TICKS)
+  {
+    Slave_EnterState(STATE_HOMED);
+  }
+  else
+  {
+    Slave_EnterState(STATE_IDLE);
+  }
+}
+
+/**
+  * @brief  Fija el origen Home (0 grados / 0 ticks) en la posicion actual y pasa a STATE_HOMED
+  */
+void Slave_CalibrateHome(void)
+{
+  Motor_SetSpeed(0);
+  total_encoder_ticks = 0;
+  home_position = 0;
+  target_position = 0;
+  __HAL_TIM_SET_COUNTER(&htim2, 0);
+  last_timer_cnt = 0;
+
+  /* Destello breve de confirmacion en PC13 */
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+  HAL_Delay(120);
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+
+  Slave_EnterState(STATE_HOMED);
+}
+
+/**
+  * @brief  Inicia un movimiento cerrado hacia new_target en modo STATE_HOMING o STATE_POSITIONING
+  */
+void Slave_StartMoveToTarget(int32_t new_target, SystemState_t move_state)
+{
+  target_position = new_target;
+  go_home_initial_error = abs(target_position - total_encoder_ticks);
+  go_home_start_time = HAL_GetTick();
+  Slave_EnterState(move_state);
+}
+
+/**
+  * @brief  Controlador en lazo cerrado compartido por STATE_HOMING (3) y STATE_POSITIONING (5)
+  */
+void Slave_RunPositionControl(int32_t step_req, uint8_t btn2, uint8_t btn3)
+{
+  /* Si se presiona BTN2 (Set Home), calibrar el cero inmediatamente aqui */
+  if (btn2)
+  {
+    Slave_CalibrateHome();
+    return;
+  }
+
+  /* Si se presiona BTN3 (Ir a Home) durante un posicionamiento, redirigir al origen Home */
+  if (btn3 && current_state != STATE_HOMING)
+  {
+    Slave_StartMoveToTarget(home_position, STATE_HOMING);
+  }
+
+  /* Si llega un nuevo paso angular relativo, acumular objetivo y pasar a STATE_POSITIONING */
+  if (step_req != 0)
+  {
+    if (current_state == STATE_POSITIONING)
+    {
+      target_position += step_req;
+    }
+    else
+    {
+      target_position = total_encoder_ticks + step_req;
+      current_state = STATE_POSITIONING;
+    }
+    go_home_initial_error = abs(target_position - total_encoder_ticks);
+    go_home_start_time = HAL_GetTick();
+  }
+
+  /* Error de posicion respecto al objetivo */
+  int32_t error = target_position - total_encoder_ticks;
+  int32_t abs_err = abs(error);
+
+  /* 1. Verificacion de llegada dentro de la banda muerta */
+  if (abs_err <= POS_DEADBAND_TICKS)
+  {
+    Slave_TransitionToRest();
+    return;
+  }
+
+  /* 2. Deteccion y auto-correccion de sentido invertido (anti-embalamiento) */
+  if (abs_err > (go_home_initial_error + 30))
+  {
+    motor_dir_sign = -motor_dir_sign;
+    go_home_initial_error = abs_err;
+  }
+
+  /* 3. Timeout de seguridad -> transicion formal a STATE_ERROR_LIMIT */
+  if ((HAL_GetTick() - go_home_start_time) > GO_HOME_TIMEOUT_MS)
+  {
+    Slave_EnterState(STATE_ERROR_LIMIT);
+    return;
+  }
+
+  /* 4. Velocidad proporcional escalonada */
+  int16_t speed = (abs_err > 40) ? POS_MAX_DUTY : POS_MIN_DUTY;
+
+  /* 5. Comandar motor con correccion de signo */
+  if (error > 0)
+  {
+    Motor_SetSpeed(motor_dir_sign * speed);
+  }
+  else
+  {
+    Motor_SetSpeed(-motor_dir_sign * speed);
+  }
+}
 /* USER CODE END 0 */
 
 /**
@@ -382,7 +548,7 @@ int main(void)
   total_encoder_ticks = 0;
   home_position = 0;
   target_position = 0;
-  current_state = STATE_IDLE;
+  Slave_EnterState(STATE_HOMED);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -395,70 +561,64 @@ int main(void)
     /* 1. Actualizar el conteo continuo del encoder (32 bits anti-desbordamiento) */
     Encoder_Update();
 
-    /* 2. Capturar los eventos de BTN1..BTN4 recibidos por CAN desde BP_A_Master_F */
+    /* 2. Capturar los eventos de BTN1..BTN4 y pasos angulares recibidos por CAN desde BP_A_Master_F */
     uint8_t btn1 = can_btn1_flag; can_btn1_flag = 0;
     uint8_t btn2 = can_btn2_flag; can_btn2_flag = 0;
     uint8_t btn3 = can_btn3_flag; can_btn3_flag = 0;
     uint8_t btn4 = can_btn4_flag; can_btn4_flag = 0;
     int32_t step_req = can_step_ticks; can_step_ticks = 0;
 
-    /* 3. PARADA DE EMERGENCIA / STOP (BTN4 tiene prioridad sobre cualquier estado) */
+    /* 3. PARADA DE EMERGENCIA / STOP (BTN4 tiene prioridad global sobre cualquier estado) */
     if (btn4)
     {
-      Motor_SetSpeed(0);
-      current_state = STATE_IDLE;
+      Slave_TransitionToRest();
     }
 
-    /* 4. VERIFICACIÓN DE LÍMITE DE SEGURIDAD */
-    if (current_state == STATE_SCANNING || current_state == STATE_GO_TO_HOME)
+    /* 4. VERIFICACIÓN DE LÍMITE MECÁNICO DE SEGURIDAD */
+    if (current_state == STATE_SCANNING ||
+        current_state == STATE_HOMING   ||
+        current_state == STATE_POSITIONING)
     {
       if (abs(total_encoder_ticks - home_position) >= MAX_ENCODER_LIMIT)
       {
-        Motor_SetSpeed(0);
-        current_state = STATE_ERROR_LIMIT;
+        Slave_EnterState(STATE_ERROR_LIMIT);
       }
     }
 
-    /* 5. MÁQUINA DE ESTADOS */
+    /* 5. MÁQUINA DE ESTADOS FORMAL DE MOVIMIENTO (FASE C) */
     switch (current_state)
     {
       case STATE_IDLE:
+      case STATE_HOMED:
         Motor_SetSpeed(0);
         HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET); /* LED PC13 apagado en reposo */
 
-        /* BTN1: Iniciar barrido oscilante basado en vueltas (PPR) */
+        /* Sincronizar estado de reposo según si el eje está dentro de ±8° (±56 ticks) de Home */
+        if (abs(total_encoder_ticks - home_position) <= HOMED_TOLERANCE_TICKS)
+        {
+          current_state = STATE_HOMED;
+        }
+        else
+        {
+          current_state = STATE_IDLE;
+        }
+
+        /* Transiciones de salida desde reposo (STATE_IDLE o STATE_HOMED) */
         if (btn1)
         {
-          leg_start_ticks = total_encoder_ticks; /* Origen de este tramo */
-          scan_phase = SCAN_PHASE_FORWARD;
-          Motor_SetSpeed(SWEEP_DUTY);
-          current_state = STATE_SCANNING;
+          Slave_EnterState(STATE_SCANNING);
         }
-        /* BTN2: Fijar Home en reposo si se desea calibrar aquí */
         else if (btn2)
         {
-          total_encoder_ticks = 0;
-          home_position = 0;
-          target_position = 0;
-          __HAL_TIM_SET_COUNTER(&htim2, 0);
-          last_timer_cnt = 0;
-          current_state = STATE_HOMING_LOCKED;
+          Slave_CalibrateHome();
         }
-        /* BTN3: Regresar a la posición de Home memorizada */
         else if (btn3)
         {
-          target_position = home_position;
-          go_home_initial_error = abs(target_position - total_encoder_ticks);
-          go_home_start_time = HAL_GetTick();
-          current_state = STATE_GO_TO_HOME;
+          Slave_StartMoveToTarget(home_position, STATE_HOMING);
         }
-        /* Giro angular relativo por comando remoto (±30°, ±90°, ±180°, ±360°) */
         else if (step_req != 0)
         {
-          target_position = total_encoder_ticks + step_req;
-          go_home_initial_error = abs(target_position - total_encoder_ticks);
-          go_home_start_time = HAL_GetTick();
-          current_state = STATE_GO_TO_HOME;
+          Slave_StartMoveToTarget(total_encoder_ticks + step_req, STATE_POSITIONING);
         }
         break;
 
@@ -470,147 +630,89 @@ int main(void)
         {
           case SCAN_PHASE_FORWARD:
             Motor_SetSpeed(SWEEP_DUTY);
-            /* Verificar si completó 2 vueltas relativas hacia adelante */
             if (abs(total_encoder_ticks - leg_start_ticks) >= SWEEP_TARGET_TICKS)
             {
-              Motor_SetSpeed(0); /* Freno activo */
+              Motor_SetSpeed(0);
               scan_pause_timer = HAL_GetTick();
               scan_phase = SCAN_PHASE_PAUSE_FWD;
             }
             break;
 
           case SCAN_PHASE_PAUSE_FWD:
-            Motor_SetSpeed(0); /* Freno durante el delay de 1 segundo */
+            Motor_SetSpeed(0);
             if (HAL_GetTick() - scan_pause_timer >= SWEEP_PAUSE_MS)
             {
-              leg_start_ticks = total_encoder_ticks; /* Origen para el tramo en reversa */
-              Motor_SetSpeed(-SWEEP_DUTY); /* Iniciar giro en reversa con fuerza */
+              leg_start_ticks = total_encoder_ticks;
+              Motor_SetSpeed(-SWEEP_DUTY);
               scan_phase = SCAN_PHASE_REVERSE;
             }
             break;
 
           case SCAN_PHASE_REVERSE:
             Motor_SetSpeed(-SWEEP_DUTY);
-            /* Verificar si completó 2 vueltas relativas hacia atrás */
             if (abs(total_encoder_ticks - leg_start_ticks) >= SWEEP_TARGET_TICKS)
             {
-              Motor_SetSpeed(0); /* Freno activo */
+              Motor_SetSpeed(0);
               scan_pause_timer = HAL_GetTick();
               scan_phase = SCAN_PHASE_PAUSE_REV;
             }
             break;
 
           case SCAN_PHASE_PAUSE_REV:
-            Motor_SetSpeed(0); /* Freno durante el delay de 1 segundo */
+            Motor_SetSpeed(0);
             if (HAL_GetTick() - scan_pause_timer >= SWEEP_PAUSE_MS)
             {
-              leg_start_ticks = total_encoder_ticks; /* Origen para el siguiente tramo adelante */
-              Motor_SetSpeed(SWEEP_DUTY); /* Reiniciar giro hacia adelante */
+              leg_start_ticks = total_encoder_ticks;
+              Motor_SetSpeed(SWEEP_DUTY);
               scan_phase = SCAN_PHASE_FORWARD;
             }
             break;
         }
 
-        /* BTN2: Fijar Home */
+        /* BTN2: Fijar Home en el punto actual y quedar en STATE_HOMED */
         if (btn2)
         {
-          Motor_SetSpeed(0);
-
-          /* Fijar el origen de coordenadas exactamente en este punto */
-          total_encoder_ticks = 0;
-          home_position = 0;
-          target_position = 0;
-          __HAL_TIM_SET_COUNTER(&htim2, 0);
-          last_timer_cnt = 0;
-
-          current_state = STATE_HOMING_LOCKED;
+          Slave_CalibrateHome();
         }
-        break;
-
-      case STATE_HOMING_LOCKED:
-        /* Señalización visual: destello breve del LED integrado */
-        Motor_SetSpeed(0);
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-        HAL_Delay(150);
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-        current_state = STATE_IDLE; /* Regresa a reposo con el cero memorizado */
-        break;
-
-      case STATE_GO_TO_HOME:
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-
+        /* BTN3: Interrumpir barrido y regresar al origen Home */
+        else if (btn3)
         {
-          /* Si llega un nuevo paso angular relativo mientras posiciona, acumular objetivo */
-          if (step_req != 0)
-          {
-            target_position += step_req;
-            go_home_initial_error = abs(target_position - total_encoder_ticks);
-            go_home_start_time = HAL_GetTick();
-          }
-
-          /* Error de posición respecto al objetivo (Home = 0 o ángulo relativo) */
-          int32_t error = target_position - total_encoder_ticks;
-          int32_t abs_err = abs(error);
-
-          /* 1. Verificación de llegada dentro de la zona muerta */
-          if (abs_err <= POS_DEADBAND_TICKS)
-          {
-            Motor_SetSpeed(0);
-            current_state = STATE_IDLE; /* Posición alcanzada con precisión */
-          }
-          else
-          {
-            /* 2. Detección y auto-corrección de sentido invertido (anti-embalamiento) */
-            if (abs_err > (go_home_initial_error + 30))
-            {
-              motor_dir_sign = -motor_dir_sign;
-              go_home_initial_error = abs_err;
-            }
-
-            /* 3. Timeout de seguridad: tiempo suficiente para desandar las 2 vueltas del engranaje */
-            if (HAL_GetTick() - go_home_start_time > GO_HOME_TIMEOUT_MS)
-            {
-              Motor_SetSpeed(0);
-              current_state = STATE_IDLE;
-            }
-
-            /* 4. Velocidad proporcional: POS_MIN_DUTY cerca, POS_MAX_DUTY si está más lejos */
-            int16_t speed = POS_MIN_DUTY;
-            if (abs_err > 40)
-            {
-              speed = POS_MAX_DUTY;
-            }
-
-            /* 5. Comandar motor con corrección de signo */
-            if (error > 0)
-            {
-              Motor_SetSpeed(motor_dir_sign * speed);
-            }
-            else
-            {
-              Motor_SetSpeed(-motor_dir_sign * speed);
-            }
-          }
+          Slave_StartMoveToTarget(home_position, STATE_HOMING);
         }
+        /* Paso angular relativo: pasar a posicionamiento relativo */
+        else if (step_req != 0)
+        {
+          Slave_StartMoveToTarget(total_encoder_ticks + step_req, STATE_POSITIONING);
+        }
+        break;
+
+      case STATE_HOMING:
+      case STATE_POSITIONING:
+        Slave_RunPositionControl(step_req, btn2, btn3);
         break;
 
       case STATE_ERROR_LIMIT:
         Motor_SetSpeed(0);
-        /* Parpadeo continuo de advertencia */
-        HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-        HAL_Delay(100);
-
-        /* Salir del estado de error al presionar STOP (BTN4) o BTN1 */
-        if (btn4 || btn1)
+        /* Parpadeo no bloqueante de advertencia cada 100 ms */
+        if ((HAL_GetTick() - error_blink_tick) >= 100)
         {
-          total_encoder_ticks = 0;
-          home_position = 0;
-          current_state = STATE_IDLE;
+          error_blink_tick = HAL_GetTick();
+          HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+        }
+
+        /* Salir del estado de falla al presionar BTN2 (Recalibrar Home) o BTN1 */
+        if (btn2)
+        {
+          Slave_CalibrateHome();
+        }
+        else if (btn1)
+        {
+          Slave_TransitionToRest();
         }
         break;
 
       default:
-        current_state = STATE_IDLE;
+        Slave_TransitionToRest();
         break;
     }
 

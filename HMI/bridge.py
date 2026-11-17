@@ -34,8 +34,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 TCL_EOF = b"\x1a"
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
-# Conversión mecánica: 2400 pulsos de encoder = 1 vuelta del engranaje conducido = 360°
-TICKS_PER_GEAR_REV = 2400
+# Conversión mecánica: 2520 pulsos de encoder (60 por vuelta de motor x 42 dientes) = 1 vuelta del engranaje conducido = 360°
+TICKS_PER_GEAR_REV = 2520
 
 # Catálogo de variables del firmware BP_A_Master_F
 VAR_SPECS: Dict[str, Dict[str, Any]] = {
@@ -44,7 +44,7 @@ VAR_SPECS: Dict[str, Dict[str, Any]] = {
         "size": 4,
         "fmt": "<i",
         "writable": False,
-        "desc": "Posición real del engranaje en grados (360° = 1 vuelta = 2400 pulsos)",
+        "desc": "Posición real del engranaje en grados (360° = 1 vuelta = 2520 pulsos)",
     },
     "live_position_ticks": {
         "type": "int32_t",
@@ -59,7 +59,15 @@ VAR_SPECS: Dict[str, Dict[str, Any]] = {
         "size": 1,
         "fmt": "<B",
         "writable": False,
-        "desc": "0=IDLE 1=SCANNING 2=HOMED 3=HOMING 4=ERROR",
+        "desc": "FSM Motor (B): 0=IDLE 1=SCANNING 2=HOMED 3=HOMING 4=ERROR 5=POSITIONING",
+    },
+    "master_state": {
+        "type": "MasterState_t",
+        "size": 1,
+        "fmt": "<B",
+        "writable": False,
+        "optional": True,
+        "desc": "FSM Master (A): 0=INIT 1=LOCAL 2=REMOTE 3=CAN_FAULT 4=SLAVE_ERROR",
     },
     "telemetry_counter": {
         "type": "uint32_t",

@@ -1,0 +1,354 @@
+================================================================================
+INSTRUCCIONES ESTRICTAS PARA LA IA REDACTORA DEL INFORME (LEER ANTES DE REDACTAR)
+================================================================================
+Actuá como un redactor técnico de ingeniería electrónica y sistemas embebidos.
+Tu tarea es redactar el informe técnico del proyecto basándote ÚNICA Y EXCLUSIVAMENTE
+en los datos reales contenidos en este documento.
+
+REGLAS OBLIGATORIAS:
+1. PROHIBIDO ALUCINAR O INVENTAR:
+   - NO inventes componentes que no se usaron (ej. NO se usó FreeRTOS, NO se usó
+     UART/USART ni puerto COM virtual USB-CDC, NO se usó sensor final de carrera
+     físico ni optoacoplador de home, NO se usó Arduino, NO se usó transceptor
+     TJA1050 ni SN65HVD230; el transceptor real es MCP2551).
+   - NO inventes librerías externas en la PC (el puente Python usa 100% biblioteca
+     estándar de Python 3.10 y la interfaz web usa HTML5/CSS3/JS nativo sin
+     frameworks ni librerías externas).
+   - Respetá exactamente los nombres de archivos, funciones, variables globales,
+     identificadores CAN, pines GPIO, temporizadores y constantes numéricas.
+2. ESTILO CONCISO, TÉCNICO Y SIN REPETICIONES:
+   - Sé directo, preciso y estructurado. No repitas la misma explicación en
+     distintas secciones.
+   - Si explicás la relación mecánica de transmisión o el protocolo CAN en su
+     sección correspondiente, en el resto del informe solo hacé referencia a los
+     valores resultantes (ej. 2400 ticks = 360°) sin volver a deducir la fórmula.
+   - Evitá introducciones genéricas de relleno ("En la actualidad la industria 4.0...",
+     "Los microcontroladores son muy importantes..."). Ir directo al problema de
+     ingeniería, la arquitectura implementada y los resultados verificados.
+
+================================================================================
+1. DESCRIPCIÓN GENERAL Y OBJETIVO DEL PROYECTO
+================================================================================
+El proyecto consiste en un Sistema Distribuido de Control de Posición, Homing y
+Telemetría en Tiempo Real para un motor DC con caja reductora a tornillo sin fin
+y encoder incremental, interconectado mediante bus CAN (Controller Area Network)
+entre dos microcontroladores STM32F103C8T6 ("Blue Pill") y supervisado desde una
+PC mediante una Interfaz Hombre-Máquina (HMI) Web en tiempo real.
+
+La arquitectura se divide en tres subsistemas principales:
+1. Nodo Maestro / Supervisor (`BP_A_Master_F`):
+   - Gestiona la interfaz física de usuario (6 pulsadores con antirrebote por
+     software) y el modo de operación (Local / Remoto).
+   - Supervisa la salud del enlace CAN (watchdog de telemetría de 500 ms) y el
+     estado operativo del nodo esclavo mediante una Máquina de Estados Finita (FSM).
+   - Concentra en su memoria SRAM las variables de telemetría y comando que son
+     leídas/escritas en caliente desde la PC a través del depurador ST-Link V2.
+2. Nodo Esclavo / Actuador (`BP_B_Salve_F`):
+   - Ejecuta el control en lazo cerrado del motor DC mediante un puente H L298N
+     (PWM + dirección) y decodifica en hardware el encoder incremental en cuadratura
+     mediante `TIM2`.
+   - Implementa una Máquina de Estados Finita (FSM) de movimiento con 6 estados:
+     reposo fuera de origen (`STATE_IDLE`), barrido oscilante (`STATE_SCANNING`),
+     reposo en origen (`STATE_HOMED`), retorno al origen (`STATE_HOMING`), falla
+     por límite/timeout (`STATE_ERROR_LIMIT`) y posicionamiento angular relativo
+     (`STATE_POSITIONING`).
+   - Transmite periódicamente a 20 Hz (cada 50 ms) su posición acumulada de 32 bits
+     y su estado actual a través del bus CAN.
+3. Puente de Telemetría Python (`HMI/bridge.py`) e Interfaz Web (`HMI/`):
+   - Permite monitorear y comandar el sistema en tiempo real sin detener (sin
+     hacer halt) la CPU del microcontrolador y sin requerir cables UART-USB
+     adicionales, reutilizando la conexión SWD del ST-Link y el servidor TCL RPC
+     de OpenOCD (puerto TCP 6666) hacia un servidor WebSocket local (puerto 8765).
+
+================================================================================
+2. ARQUITECTURA DE HARDWARE, PINOUT Y PARÁMETROS MECÁNICOS
+================================================================================
+
+2.1. Microcontroladores y Reloj de Sistema
+- Placas: 2x STM32F103C8T6 (ARM Cortex-M3, 64 KB Flash, 20 KB SRAM).
+- Reloj de sistema (`SYSCLK`, `HCLK`, `PCLK1`, `PCLK2`): Oscilador interno `HSI`
+  a 8 MHz (`PLL` desactivado, `FLASH_LATENCY_0`).
+- Transceptores CAN: 2x MCP2551 conectados al periférico `bxCAN` (`CAN1`) con
+  remapeo de pines (`__HAL_AFIO_REMAP_CAN1_2()`) hacia `PB8` (`CAN_RX`, entrada
+  con Pull-Up) y `PB9` (`CAN_TX`, salida Alternate Function Push-Pull).
+
+2.2. Pinout del Nodo Maestro (`BP_A_Master_F`)
+- `PB12` (`BTN1`): Pulsador físico — Iniciar Barrido oscilante (activo en bajo con Pull-Up).
+- `PB13` (`BTN2`): Pulsador físico — Fijar posición Home / Cero actual (activo en bajo).
+- `PB14` (`BTN3`): Pulsador físico — Ir a Home / Regresar a 0° (activo en bajo).
+- `PB15` (`BTN4`): Pulsador físico — Parada de Emergencia / STOP (activo en bajo;
+  activo siempre tanto en Modo Local como en Modo Remoto).
+- `PA10` / `PB10` (`BTN5`): Pulsador físico — Selección de Modo LOCAL.
+- `PA11` / `PB11` (`BTN6`): Pulsador físico — Selección de Modo REMOTO.
+- `PC13`: LED integrado en la placa Blue Pill (activo en bajo). Refleja en `BP_A`
+  el estado del LED de modo (`OFF` = Local, `ON` = Remoto) y parpadea ante
+  errores de ACK o fallas de supervisión (`MASTER_CAN_FAULT` / `MASTER_SLAVE_ERROR`).
+- `PB8` / `PB9`: Bus CAN (`CAN_RX` / `CAN_TX`) hacia transceptor MCP2551.
+
+2.3. Pinout y Periféricos del Nodo Esclavo (`BP_B_Salve_F`)
+- `PA0` (`TIM2_CH1`) y `PA1` (`TIM2_CH2`): Entradas del encoder incremental en
+  cuadratura. `TIM2` configurado en `TIM_ENCODERMODE_TI1` (modo x2, cuenta en
+  ambos flancos del canal 1), periodo `ARR = 65535` (16 bits), filtro digital
+  `IC1Filter = 6`.
+- `PA6` (`TIM3_CH1`): Salida PWM hacia pin `ENA` del driver puente H L298N.
+  Configurado con `Prescaler = 71` y `Period (ARR) = 999` (escala de ciclo de
+  trabajo de `0` a `999`).
+- `PA2` (`Escribe_IN1`) y `PA3` (`Escribe_IN2`): Salidas GPIO hacia `IN1` e `IN2`
+  del L298N para control de sentido de giro y frenado activo:
+  - Sentido horario/adelante (`speed > 0`): `IN1 = HIGH`, `IN2 = LOW`.
+  - Sentido antihorario/atrás (`speed < 0`): `IN1 = LOW`, `IN2 = HIGH`.
+  - Freno activo (`speed == 0`): `IN1 = LOW`, `IN2 = LOW`, `PWM = 0`.
+- `PB0` (`LED_REFLEJO`): Salida GPIO con LED externo que refleja el modo del
+  sistema comandado por CAN (`0x020`): apagado en Modo Local, encendido en Modo Remoto.
+- `PC13`: LED integrado que se enciende cuando el motor está en movimiento y
+  parpadea a 100 ms si ocurre una falla (`STATE_ERROR_LIMIT`).
+- `PB8` / `PB9`: Bus CAN (`CAN_RX` / `CAN_TX`) hacia transceptor MCP2551.
+
+2.4. Cinemática de la Transmisión y Resolución del Encoder
+- Encoder en el eje del motor: `ENCODER_PPR = 30` pulsos por revolución del motor.
+- En modo `TIM_ENCODERMODE_TI1` (x2):
+  `TICKS_PER_MOTOR_REV = 30 * 2 = 60` cuentas por cada vuelta del eje del motor.
+- Reducción mecánica: Tornillo sin fin de 1 entrada (`WORM_STARTS = 1`) acoplado
+  a una corona / engranaje conducido de 40 dientes (`GEAR_TEETH = 40`, radio = 15 mm).
+  Relación de reducción = `40:1` (1 vuelta del motor avanza 1 diente del engranaje).
+- Cuentas por vuelta completa del engranaje de salida (360°):
+  `TICKS_PER_GEAR_REV = 60 * 40 = 2400` ticks por revolución del engranaje (360°).
+- Equivalencia angular:
+  - `360°` = `2400 ticks` (`6,667 ticks/grado`).
+  - `180°` = `1200 ticks`.
+  - `90°`  = `600 ticks`.
+  - `30°`  = `200 ticks`.
+  - `±8°` (tolerancia de zona Home, contempla el deslizamiento por inercia del rotor) = `±53 ticks` (`HOMED_TOLERANCE_TICKS`).
+  - `±2 vueltas` de barrido (`±720°`) = `±4800 ticks` (`SWEEP_TARGET_TICKS`).
+
+================================================================================
+3. PROTOCOLO DE COMUNICACIÓN CAN BUS
+================================================================================
+Configuración del periférico `CAN1` en ambos nodos (`can.c`):
+- Reloj `APB1` = 8 MHz, `Prescaler = 2`, `SyncJumpWidth = 3 TQ`,
+  `TimeSeg1 (BS1) = 11 TQ`, `TimeSeg2 (BS2) = 4 TQ` (Total = 16 TQ por bit ->
+  Velocidad de bus = `250 kbps`).
+- Modos habilitados: `AutoBusOff = ENABLE`, `AutoRetransmission = ENABLE`.
+- Filtro CAN (`CAN_Filter_Config`): Banco 0, escala 32 bits, modo máscara en
+  `0x00000000` asignado a `CAN_RX_FIFO0` con interrupción `USB_LP_CAN1_RX0_IRQn`
+  (`HAL_CAN_RxFifo0MsgPendingCallback`) + respaldo por polling en el lazo principal.
+
+Catálogo de Tramas CAN Estándar (11 bits):
+1. `StdId = 0x010` (Dirección: Maestro A -> Esclavo B, `DLC = 1`):
+   Comandos de acción del motor y posicionamiento:
+   - `0x01`: Iniciar barrido oscilante de ±2 vueltas (`BTN1`).
+   - `0x02`: Fijar Home / calibrar origen 0° en la posición actual (`BTN2`).
+   - `0x03`: Ir a Home / regresar a 0° (`BTN3`).
+   - `0x04`: Parada de emergencia / STOP (`BTN4`).
+   - `0x05`: Giro relativo `+30°` (`+200 ticks`).
+   - `0x06`: Giro relativo `+90°` (`+600 ticks`).
+   - `0x07`: Giro relativo `+180°` (`+1200 ticks`).
+   - `0x08`: Giro relativo `+360°` (`+2400 ticks`).
+   - `0x09`: Giro relativo `-30°` (`-200 ticks`).
+   - `0x0A`: Giro relativo `-90°` (`-600 ticks`).
+   - `0x0B`: Giro relativo `-180°` (`-1200 ticks`).
+   - `0x0C`: Giro relativo `-360°` (`-2400 ticks`).
+2. `StdId = 0x020` (Dirección: Maestro A -> Esclavo B, `DLC = 1`):
+   Sincronización del LED indicador de modo en `PB0` de la Placa B:
+   - `0x00`: Modo Local (apagar `LED_REFLEJO` en `PB0`).
+   - `0x01`: Modo Remoto (encender `LED_REFLEJO` en `PB0`).
+3. `StdId = 0x030` (Dirección: Esclavo B -> Maestro A, `DLC = 5`, periódico a 20 Hz / 50 ms):
+   Trama de telemetría en tiempo real:
+   - `Bytes [0..3]`: `total_encoder_ticks` (`int32_t` en formato Little-Endian).
+   - `Byte [4]`: `current_state` (`uint8_t`, estado actual de la FSM del motor `0..5`).
+
+Verificación de ACK en Maestro (`CAN_SendMessage`):
+Cada vez que `BP_A_Master_F` transmite una trama `0x010` o `0x020`, aguarda hasta
+25 ms a que la casilla de transmisión (`txMailbox`) se libere confirmando el ACK
+de hardware del nodo B. Si vence el timeout, aborta la transmisión y ejecuta 4
+parpadeos rápidos en `PC13` (`Indicate_CAN_Result(0)`) para alertar visualmente
+el fallo de bus.
+
+================================================================================
+4. EVOLUCIÓN DEL DESARROLLO POR FASES (FASES A, B, B2 Y C)
+================================================================================
+
+--------------------------------------------------------------------------------
+FASE A: Selección de Modo Local / Remoto y Comando desde PC
+--------------------------------------------------------------------------------
+- Se implementó en `BP_A_Master_F` el tipo `OperatingMode_t` (`MODE_LOCAL = 0`,
+  `MODE_REMOTE = 1`) y las variables globales volátiles:
+  - `volatile OperatingMode_t system_mode = MODE_LOCAL;`
+  - `volatile OperatingMode_t last_system_mode = MODE_LOCAL;`
+  - `volatile uint8_t remote_cmd = 0;`
+- El cambio de modo puede realizarse físicamente mediante `BTN5` (pasa a Local,
+  envía `0x020` con `0x00`, apaga LEDs) y `BTN6` (pasa a Remoto, envía `0x020`
+  con `0x01`, enciende LEDs), o por software modificando `system_mode` desde la PC
+  (detectado automáticamente al comparar `system_mode != last_system_mode`).
+- En **Modo Local**: los pulsadores físicos `BTN1..BTN4` están habilitados y
+  cualquier valor escrito en `remote_cmd` se descarta (`remote_cmd = 0`).
+- En **Modo Remoto**: los pulsadores `BTN1..BTN3` quedan bloqueados; el maestro
+  lee `remote_cmd` (`1..12`), transmite el comando correspondiente por CAN `0x010`
+  y limpia automáticamente `remote_cmd = 0` (semántica one-shot / autolimpieza).
+  Por seguridad de banco, el pulsador físico `BTN4` (STOP) permanece SIEMPRE
+  activo en ambos modos.
+
+--------------------------------------------------------------------------------
+FASE B: Telemetría Continua CAN y Lazo de Control en Placa B
+--------------------------------------------------------------------------------
+- En `BP_B_Salve_F`:
+  - **Extensión de encoder a 32 bits (`Encoder_Update`)**: Como `TIM2` es un
+    contador de 16 bits, se lee `current_cnt = (int16_t)__HAL_TIM_GET_COUNTER(&htim2)`
+    en cada ciclo (5 ms), se calcula la diferencia con signo `delta = current_cnt - last_timer_cnt`
+    y se acumula en `volatile int32_t total_encoder_ticks`, evitando desbordamientos
+    en giros múltiples.
+  - **Impulso de arranque (`Kick-Start` en `Motor_SetSpeed`)**: Para vencer la
+    fricción estática del reductor sin fin al salir del reposo o invertir el
+    sentido de giro, cuando el motor cambia de dirección (`current_motor_dir`),
+    se aplica un pulso inicial de `KICK_DUTY = 950` (95% PWM) durante
+    `KICK_TIME_MS = 35 ms` antes de establecer el ciclo de trabajo nominal.
+  - **Controlador de posición con anti-embalamiento**:
+    Utiliza una banda muerta de llegada `POS_DEADBAND_TICKS = 5` pulsos (~0,75°),
+    velocidad escalonada proporcional (`POS_MAX_DUTY = 700` cuando el error supera
+    40 ticks y `POS_MIN_DUTY = 550` en la aproximación final), auto-inversión de
+    polaridad (`motor_dir_sign`) si el error crece en más de 30 ticks respecto al
+    error inicial (`go_home_initial_error`), y un timeout de seguridad
+    `GO_HOME_TIMEOUT_MS = 30000 ms`.
+  - **Observación experimental de inercia en barrido**: Durante el barrido
+    abierto de 2 vueltas (`4800 ticks = 720°`), al cortar PWM en `4800 ticks`, la
+    inercia del rotor del motor DC produce un deslizamiento mecánico de ~55 a 60
+    ticks (~1 vuelta del eje del motor = ~8° a 9° en el engranaje), llegando a
+    ~728°/729° antes de detenerse. En cambio, en los posicionamientos cerrados
+    (`HOMING` y `POSITIONING`), el controlador frena dentro de `±5 ticks` (`< 1°`).
+- En `BP_A_Master_F`:
+  - Al recibir la trama CAN `0x030`, reconstruye el entero de 32 bits en
+    `live_position_ticks`, calcula la posición en grados enteros
+    `live_position = (raw_ticks * 360) / 2400`, guarda el estado en
+    `live_motor_state` e incrementa `telemetry_counter`.
+
+--------------------------------------------------------------------------------
+FASE B2: Puente Python (`OpenOCD TCL :6666` -> `WebSocket :8765`) e Interfaz HMI
+--------------------------------------------------------------------------------
+- **Problema técnico resuelto (Acceso a RAM sin detener la CPU)**:
+  En STM32CubeIDE, la ventana estándar *Expressions* requiere pausar (halt) el
+  microcontrolador para refrescar variables si no se dispone de una conexión
+  dedicada. Sin embargo, cuando STM32CubeIDE inicia la sesión de depuración,
+  lanza en segundo plano un servidor **OpenOCD** que expone una interfaz **TCL RPC
+  en el puerto TCP `127.0.0.1:6666`**. A través del bus **AHB-AP (CoreSight)** del
+  Cortex-M3, OpenOCD puede leer y escribir direcciones de memoria SRAM en tiempo
+  real mientras el procesador continúa ejecutando código a velocidad nominal.
+- **Arquitectura de `HMI/bridge.py`**:
+  1. **Parser ELF32 integrado (`parse_elf32_symbols`)**: Lee directamente las
+     secciones `.symtab` y `.strtab` del archivo compilado `BP_A_Master_F/Debug/BP_A_Master_F.elf`,
+     extrae las direcciones exactas en SRAM (`0x2000xxxx`) de las variables
+     globales y detecta automáticamente si el archivo `.elf` fue recompilado en
+     caliente (hot-reload).
+  2. **Lectura en bloque por OpenOCD TCL (`OpenOcdTclClient`)**: Calcula la
+     ventana contigua de memoria que abarca todas las variables de interés y las
+     lee en una única transacción TCL (`read_memory` / `mem2array`) a ~16 Hz
+     (cada 60 ms), desempaquetando los bytes en Python según el tipo C de cada
+     variable.
+  3. **Solución al comportamiento de JimTCL en OpenOCD (`return -code 6`)**:
+     Durante las pruebas en vivo se detectó que en el intérprete JimTCL interno de
+     OpenOCD:
+     - Ejecutar `return` dentro de un bloque `catch { ... }` hace que `catch`
+       devuelva el código `JIM_RETURN (2)` (distinto de cero) en lugar de `JIM_OK (0)`,
+       lo que provocaba respuestas `unknown|ERR:...`. Se solucionó asignando el
+       resultado a una variable local dentro del `catch` y retornando fuera de él.
+     - Además, en la función `command_run_line` de OpenOCD, todo comando que
+       retorna `JIM_OK (0)` imprime su resultado en la consola de STM32CubeIDE
+       (`LOG_USER`). Al finalizar los procedimientos TCL `_hmi_poll` y `_hmi_write`
+       con `return -code 6 $valor`, OpenOCD envía la respuesta por el socket TCL
+       (`:6666`) hacia Python de forma 100% silenciosa sin ensuciar la consola del IDE.
+  4. **Servidor WebSocket RFC 6455 + HTTP estático integrado (`:8765`)**:
+     Implementado íntegramente con `asyncio`, `hashlib`, `struct` y `socket` de la
+     biblioteca estándar de Python (cero dependencias externas). Sirve la interfaz
+     web en `http://localhost:8765` e intercambia mensajes JSON (`status`,
+     `telemetry`, `write`, `ack`, `target`).
+- **Funcionalidades de la Interfaz Web (`HMI/index.html`, `HMI/app.js`, `HMI/styles.css`)**:
+  - Tarjetas KPI en vivo: Posición en grados (`live_position`), badge de pulsos
+    crudos (`live_position_ticks`), velocidad estimada en `°/s` y `RPM`, Estado
+    del Motor (`live_motor_state`), Modo y estado de la FSM Maestro (`system_mode`
+    y `master_state`), y frecuencia de tramas CAN `0x030` en `Hz`.
+  - Gráfico Canvas en tiempo real (*Posición vs. Tiempo*) con ventana configurable
+    (10 s, 30 s, 60 s, 120 s), botón de congelado, franja verde translúcida en la
+    zona Home (`±5°`) y trazo coloreado dinámicamente según el estado de la FSM.
+  - Panel de Control: selector de modo (`LOCAL` / `REMOTO`), botones de `Barrido`,
+    `Fijar Home`, `Ir a Home`, botón prominente de `STOP` (también asociado a la
+    tecla `Esc`), y sección de **Giro por ángulo** con switch de sentido
+    (`↻ SENTIDO +` / `↺ SENTIDO −`) y botones de `30°` (`200 ticks`), `90°`
+    (`600 ticks`), `180°` (`1200 ticks`) y `360°` (`2400 ticks`).
+  - Tabla de inspección/escritura de variables en RAM con direcciones hexadecimales,
+    grabación y exportación de telemetría a archivo **CSV**, y **Simulador
+    integrado (`DemoTransport`)** para pruebas sin hardware.
+  - Diseño compacto en grilla de 16 columnas optimizado para pantallas de 14
+    pulgadas (`1366x768`), con el gráfico reducido a 3/4 del bloque izquierdo.
+
+--------------------------------------------------------------------------------
+FASE C: Máquina de Estados Formal y Supervisión Distribuida
+--------------------------------------------------------------------------------
+Se formalizó la arquitectura de software de ambos microcontroladores mediante
+Máquinas de Estados Finitas (FSM) con funciones de transición explícitas:
+
+1. **FSM de Movimiento en el Nodo Esclavo (`BP_B_Salve_F` — `SystemState_t`)**:
+   - `STATE_IDLE (0)`: Motor detenido **fuera** de la ventana de Home
+     (`|total_encoder_ticks - home_position| > 33 ticks`, es decir, fuera de `±5°`).
+   - `STATE_SCANNING (1)`: Barrido oscilante automático de `±2 vueltas` (`±4800 ticks`)
+     con sub-estados no bloqueantes (`SCAN_PHASE_FORWARD`, `SCAN_PHASE_PAUSE_FWD`,
+     `SCAN_PHASE_REVERSE`, `SCAN_PHASE_PAUSE_REV`, pausa de 1000 ms entre tramos).
+   - `STATE_HOMED (2)`: Motor detenido **dentro** de la ventana de Home
+     (`|total_encoder_ticks - home_position| <= 33 ticks`, equivalente a `±5°`).
+     Permanece activo mientras el eje descanse en la zona de origen.
+   - `STATE_HOMING (3)`: Movimiento en lazo cerrado retornando hacia el origen
+     `home_position = 0`. Al llegar dentro de `POS_DEADBAND_TICKS (5)`, transiciona
+     mediante `Slave_TransitionToRest()` a `STATE_HOMED (2)`.
+   - `STATE_ERROR_LIMIT (4)`: Estado de bloqueo seguro ante exceso de límite
+     mecánico (`|pos| >= MAX_ENCODER_LIMIT = 25000 ticks`) o vencimiento del
+     timeout de movimiento (`30 s`). Frena el motor, parpadea `PC13` cada 100 ms
+     de forma no bloqueante y solo permite salir mediante `STOP (BTN4)`,
+     `Fijar Home (BTN2)` o `BTN1`.
+   - `STATE_POSITIONING (5)`: Movimiento en lazo cerrado hacia un ángulo relativo
+     comandado desde la HMI (`±30°`, `±90°`, `±180°`, `±360°`). Si recibe nuevos
+     pasos angulares en tránsito, acumula el objetivo dinámicamente. Al llegar al
+     objetivo, `Slave_TransitionToRest()` evalúa si la posición final quedó dentro
+     de `±5°` (`STATE_HOMED`) o fuera de `±5°` (`STATE_IDLE`).
+   - Funciones modulares implementadas en `BP_B_Salve_F/Core/Src/main.c`:
+     `Slave_EnterState()`, `Slave_TransitionToRest()`, `Slave_CalibrateHome()`,
+     `Slave_StartMoveToTarget()` y `Slave_RunPositionControl()`.
+
+2. **FSM de Supervisión en el Nodo Maestro (`BP_A_Master_F` — `MasterState_t`)**:
+   - `MASTER_INIT (0)`: Inicialización de periféricos y temporizadores tras el arranque.
+   - `MASTER_LOCAL (1)`: Operación normal gobernada por los pulsadores físicos
+     `BTN1..BTN4` (LED apagado). Supervisa continuamente el bus CAN y el estado del esclavo.
+   - `MASTER_REMOTE (2)`: Operación normal gobernada desde la PC/HMI mediante
+     `remote_cmd` (`1..12`) manteniendo `BTN4` físico activo como parada de
+     emergencia (LED encendido).
+   - `MASTER_CAN_FAULT (3)`: Se dispara automáticamente si transcurren más de
+     `CAN_TELEMETRY_TIMEOUT_MS = 500 ms` sin recibir tramas `0x030` desde la Placa B
+     (`HAL_GetTick() - last_rx_telemetry_tick > 500`). Descarta comandos remotos
+     pendientes, parpadea `PC13` cada 120 ms y, apenas se restablece la recepción
+     de tramas `0x030`, re-sincroniza el LED `0x020` y retorna automáticamente a
+     `MASTER_LOCAL` o `MASTER_REMOTE`.
+   - `MASTER_SLAVE_ERROR (4)`: Se activa automáticamente cuando la telemetría reporta
+     `live_motor_state == 4` (`STATE_ERROR_LIMIT`). Restringe el envío de comandos
+     únicamente a acciones de parada/desbloqueo (`1`, `2`, `4`) y retorna a
+     `MASTER_LOCAL` o `MASTER_REMOTE` en cuanto la Placa B sale del estado de error.
+   - Funciones modulares implementadas en `BP_A_Master_F/Core/Src/main.c`:
+     `Master_EnterState()`, `Master_SyncModeLed()` y `Master_PollModeSelection()`.
+
+================================================================================
+5. ESTRUCTURA SUGERIDA PARA QUE LA IA REDACTE EL INFORME
+================================================================================
+Cuando redactes el informe a partir de este documento, organizalo en las
+siguientes secciones claras y concisas:
+1. Resumen Ejecutivo y Objetivos del Sistema.
+2. Arquitectura del Sistema Distribuido (Diagrama en bloques conceptual: Nodo A,
+   Bus CAN, Nodo B, Etapa de Potencia/Motor/Encoder y Enlace SWD-OpenOCD-HMI).
+3. Diseño de Hardware y Dimensionamiento Mecánico (Pinout de ambas placas,
+   configuración de timers `TIM2`/`TIM3` y deducción de la constante de
+   2400 ticks/vuelta).
+4. Protocolo de Comunicación CAN (`250 kbps`, formato de las tramas `0x010`,
+   `0x020` y `0x030`, y mecanismos de detección de fallas de enlace).
+5. Diseño de Software y Máquinas de Estados (FSM de Supervisión en Nodo A y FSM
+   de Control de Movimiento en Nodo B).
+6. Sistema de Telemetría y Control en Tiempo Real (Arquitectura sin pausa de CPU
+   vía OpenOCD TCL `:6666`, puente Python `bridge.py` e Interfaz Web HMI).
+7. Pruebas Experimentales y Conclusiones (Verificación de modos Local/Remoto,
+   análisis de precisión angular e inercia en barrido vs. lazo cerrado, y pruebas
+   de tolerancia a fallas de bus CAN).
+================================================================================
