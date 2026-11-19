@@ -52,6 +52,9 @@
     ⚠ <strong>Sin telemetría CAN</strong> — el micro está corriendo, pero <code>telemetry_counter</code> no aumenta.
     Revisá la placa B, el bus CAN o la terminación.
   </div>
+  <div id="motor-banner" class="banner err hidden">
+    ⚠ <strong>Falla de motor / Motor desconectado</strong> — <span id="motor-fault-text">se comandó un movimiento, pero el encoder no registra respuesta. Verificá que el puente H <code>L298N</code> esté energizado y el motor/encoder conectados (pulsá <strong>STOP</strong> para reintentar).</span>
+  </div>
   <div id="stale-banner" class="banner warn hidden">
     ⚠ <strong>Sin datos del puente</strong> — la conexión WebSocket está abierta, pero no llegan muestras.
   </div>
@@ -187,6 +190,7 @@
       <div class="demo-grid">
         <button id="btn-sim-halt" class="btn small">⏸ Breakpoint (halt)</button>
         <button id="btn-sim-canfault" class="btn small">⚡ Cortar bus CAN</button>
+        <button id="btn-sim-unplug" class="btn small">🔌 Desconectar L298N / Motor</button>
         <button id="btn-sim-error" class="btn small">⚠ Inyectar ERROR motor</button>
         <button id="btn-sim-btn5" class="btn small">BTN5 físico (Local)</button>
         <button id="btn-sim-btn6" class="btn small">BTN6 físico (Remoto)</button>
@@ -201,7 +205,7 @@
       <section class="card">
         <div class="card-head">
           <h2>FSM Nodo Esclavo · Motor (BP_B_Salve_F)</h2>
-          <span class="tag mono">SystemState_t (0..5)</span>
+          <span class="tag mono">SystemState_t (0..5) · 0 HAL_Delay</span>
         </div>
         <div class="fsm-nodes" id="fsm-b-nodes"></div>
       </section>
@@ -209,7 +213,7 @@
       <section class="card">
         <div class="card-head">
           <h2>FSM Nodo Maestro · Supervisor (BP_A_Master_F)</h2>
-          <span class="tag mono">MasterState_t (0..4)</span>
+          <span class="tag mono">MasterState_t (0..4) · 0 HAL_Delay</span>
         </div>
         <div class="fsm-nodes" id="fsm-a-nodes"></div>
       </section>
@@ -232,7 +236,7 @@
       <div class="card-head">
         <h2>Inventario Completo de Estados de Error, Fallas, Alertas y Casos Especiales</h2>
         <div class="card-tools">
-          <span class="tag mono" id="matrix-count">14 casos documentados</span>
+          <span class="tag mono" id="matrix-count">17 casos documentados</span>
         </div>
       </div>
 

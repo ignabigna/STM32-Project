@@ -1,0 +1,469 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
+<defs>
+  <style>
+    text { font-family: 'Segoe UI', 'Inter', Arial, sans-serif; }
+    .title { font-size: 25px; font-weight: 700; fill: #0F172A; }
+    .subtitle { font-size: 13.5px; font-weight: 500; fill: #475569; }
+    .mod-hdr { font-size: 15px; font-weight: 700; fill: #FFFFFF; }
+    .mod-sub { font-size: 11.5px; font-weight: 500; fill: #E2E8F0; }
+    .mod-sub-ic { font-size: 11px; font-weight: 500; fill: #94A3B8; }
+    .pin-lbl { font-size: 12px; font-weight: 700; font-family: 'Consolas', 'Cascadia Mono', monospace; fill: #0F172A; }
+    .pin-lbl-ic { font-size: 11.5px; font-weight: 700; font-family: 'Consolas', 'Cascadia Mono', monospace; fill: #F8FAFC; }
+    .pin-fn { font-size: 11px; font-weight: 500; fill: #475569; }
+    .comp-lbl { font-size: 11.5px; font-weight: 700; fill: #1E293B; font-family: 'Consolas', monospace; }
+    .comp-lbl-teal { font-size: 11.5px; font-weight: 700; fill: #0F766E; font-family: 'Consolas', monospace; }
+    .btn-lbl { font-size: 11.5px; font-weight: 700; fill: #1E3A8A; }
+    .sub-mini { font-size: 10.5px; font-weight: 500; fill: #475569; }
+    .sec-tag { font-size: 10.5px; font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase; fill: #1E3A8A; }
+  </style>
+  <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+    <path d="M 24 0 L 0 0 0 24" fill="none" stroke="#F1F5F9" stroke-width="1"/>
+  </pattern>
+  <marker id="arr-blue" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#2563EB"/>
+  </marker>
+  <marker id="arr-purple" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#7C3AED"/>
+  </marker>
+  <marker id="arr-teal" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#0D9488"/>
+  </marker>
+  <marker id="arr-green" markerWidth="6" markerHeight="5" refX="5" refY="2.5" orient="auto">
+    <polygon points="0 0, 6 2.5, 0 5" fill="#16A34A"/>
+  </marker>
+  <filter id="shadow" x="-3%" y="-3%" width="106%" height="108%">
+    <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#0F172A" flood-opacity="0.08"/>
+  </filter>
+</defs>
+
+<rect width="1920" height="1080" fill="#FFFFFF"/>
+<rect x="16" y="14" width="1888" height="1052" rx="12" fill="url(#grid)" stroke="#CBD5E1" stroke-width="1.5"/>
+
+<!-- Title Header -->
+<rect x="16" y="14" width="1888" height="74" rx="12" fill="#F8FAFC"/>
+<line x1="16" y1="88" x2="1904" y2="88" stroke="#CBD5E1" stroke-width="1.5"/>
+<text x="40" y="47" class="title">Esquema Eléctrico y Conexionado General — Control Distribuido por Bus CAN</text>
+<text x="40" y="71" class="subtitle">2 × STM32F103C8T6 (Blue Pill) · Transceptores MCP2551 (250 kbps, Req ≈ 60 Ω) · Puente H L298N · Motor DC con Encoder en Cuadratura</text>
+<rect x="1645" y="29" width="235" height="44" rx="8" fill="#EFF6FF" stroke="#BFDBFE" stroke-width="1.2"/>
+<text x="1762" y="48" text-anchor="middle" font-size="11.5" font-weight="700" fill="#1E40AF">Trabajo Integrador MyEP</text>
+<text x="1762" y="65" text-anchor="middle" font-size="10.5" font-weight="600" fill="#3B82F6">BP_A_Master_F ↔ BP_B_Salve_F</text>
+
+
+<g filter="url(#shadow)">
+  <rect x="36" y="114" width="206" height="122" rx="10" fill="#F8FAFC" stroke="#475569" stroke-width="2"/>
+  <rect x="36" y="114" width="206" height="34" rx="10" fill="#334155"/>
+  <rect x="36" y="138" width="206" height="10" fill="#334155"/>
+  <text x="139" y="136" text-anchor="middle" class="mod-hdr">PC / Web HMI</text>
+</g>
+<text x="50" y="169" class="pin-lbl">ST-Link V2 (SWD)</text>
+<text x="50" y="185" class="sub-mini">SWDIO · SWCLK · GND (sin 3,3V)</text>
+<text x="50" y="208" class="pin-lbl" style="fill:#B91C1C;">Cable Micro-USB (5 V)</text>
+<text x="50" y="224" class="sub-mini">Alimentación + USB D-/D+</text>
+<line x1="242" y1="176" x2="300" y2="176" stroke="#475569" stroke-width="2.2" marker-end="url(#arr-blue)"/>
+<text x="272" y="168" text-anchor="middle" font-size="10.5" font-weight="700" fill="#334155">SWD</text>
+<line x1="242" y1="214" x2="300" y2="214" stroke="#DC2626" stroke-width="2.6"/>
+<text x="272" y="206" text-anchor="middle" font-size="10.5" font-weight="700" fill="#DC2626">5 V USB</text>
+
+
+<g filter="url(#shadow)">
+  <rect x="36" y="268" width="206" height="498" rx="10" fill="#F8FAFC" stroke="#94A3B8" stroke-width="1.6" stroke-dasharray="6,4"/>
+  <text x="139" y="294" text-anchor="middle" class="sec-tag">Panel Local (6 Pulsadores)</text>
+  <text x="139" y="313" text-anchor="middle" class="sub-mini">Activos en bajo · Pull-Up interno</text>
+</g>
+
+<line x1="68" y1="455" x2="68" y2="852" stroke="#334155" stroke-width="2.6"/>
+<circle cx="68" cy="852" r="4.5" fill="#334155"/>
+<circle cx="68" cy="455" r="3.5" fill="#334155"/>
+<line x1="68" y1="455" x2="128.0" y2="455" stroke="#2563EB" stroke-width="2"/>
+<line x1="154.0" y1="455" x2="214" y2="455" stroke="#2563EB" stroke-width="2"/>
+<circle cx="128.0" cy="455" r="3" fill="#FFFFFF" stroke="#1E40AF" stroke-width="1.8"/>
+<circle cx="154.0" cy="455" r="3" fill="#FFFFFF" stroke="#1E40AF" stroke-width="1.8"/>
+<line x1="128.0" y1="446" x2="154.0" y2="446" stroke="#1E40AF" stroke-width="2.2"/>
+<line x1="141.0" y1="446" x2="141.0" y2="440" stroke="#1E40AF" stroke-width="2"/>
+<line x1="135.0" y1="440" x2="147.0" y2="440" stroke="#1E40AF" stroke-width="2.4"/>
+<text x="141.0" y="435" text-anchor="middle" class="btn-lbl">BTN1 (Barrido)</text>
+<line x1="214" y1="455" x2="300" y2="455" stroke="#2563EB" stroke-width="2.2" marker-end="url(#arr-blue)"/>
+<circle cx="68" cy="507" r="3.5" fill="#334155"/>
+<line x1="68" y1="507" x2="128.0" y2="507" stroke="#2563EB" stroke-width="2"/>
+<line x1="154.0" y1="507" x2="214" y2="507" stroke="#2563EB" stroke-width="2"/>
+<circle cx="128.0" cy="507" r="3" fill="#FFFFFF" stroke="#1E40AF" stroke-width="1.8"/>
+<circle cx="154.0" cy="507" r="3" fill="#FFFFFF" stroke="#1E40AF" stroke-width="1.8"/>
+<line x1="128.0" y1="498" x2="154.0" y2="498" stroke="#1E40AF" stroke-width="2.2"/>
+<line x1="141.0" y1="498" x2="141.0" y2="492" stroke="#1E40AF" stroke-width="2"/>
+<line x1="135.0" y1="492" x2="147.0" y2="492" stroke="#1E40AF" stroke-width="2.4"/>
+<text x="141.0" y="487" text-anchor="middle" class="btn-lbl">BTN2 (Set Home)</text>
+<line x1="214" y1="507" x2="300" y2="507" stroke="#2563EB" stroke-width="2.2" marker-end="url(#arr-blue)"/>
+<circle cx="68" cy="559" r="3.5" fill="#334155"/>
+<line x1="68" y1="559" x2="128.0" y2="559" stroke="#2563EB" stroke-width="2"/>
+<line x1="154.0" y1="559" x2="214" y2="559" stroke="#2563EB" stroke-width="2"/>
+<circle cx="128.0" cy="559" r="3" fill="#FFFFFF" stroke="#1E40AF" stroke-width="1.8"/>
+<circle cx="154.0" cy="559" r="3" fill="#FFFFFF" stroke="#1E40AF" stroke-width="1.8"/>
+<line x1="128.0" y1="550" x2="154.0" y2="550" stroke="#1E40AF" stroke-width="2.2"/>
+<line x1="141.0" y1="550" x2="141.0" y2="544" stroke="#1E40AF" stroke-width="2"/>
+<line x1="135.0" y1="544" x2="147.0" y2="544" stroke="#1E40AF" stroke-width="2.4"/>
+<text x="141.0" y="539" text-anchor="middle" class="btn-lbl">BTN3 (Go Home)</text>
+<line x1="214" y1="559" x2="300" y2="559" stroke="#2563EB" stroke-width="2.2" marker-end="url(#arr-blue)"/>
+<circle cx="68" cy="611" r="3.5" fill="#334155"/>
+<line x1="68" y1="611" x2="128.0" y2="611" stroke="#2563EB" stroke-width="2"/>
+<line x1="154.0" y1="611" x2="214" y2="611" stroke="#2563EB" stroke-width="2"/>
+<circle cx="128.0" cy="611" r="3" fill="#FFFFFF" stroke="#1E40AF" stroke-width="1.8"/>
+<circle cx="154.0" cy="611" r="3" fill="#FFFFFF" stroke="#1E40AF" stroke-width="1.8"/>
+<line x1="128.0" y1="602" x2="154.0" y2="602" stroke="#1E40AF" stroke-width="2.2"/>
+<line x1="141.0" y1="602" x2="141.0" y2="596" stroke="#1E40AF" stroke-width="2"/>
+<line x1="135.0" y1="596" x2="147.0" y2="596" stroke="#1E40AF" stroke-width="2.4"/>
+<text x="141.0" y="591" text-anchor="middle" class="btn-lbl">BTN4 (STOP)</text>
+<line x1="214" y1="611" x2="300" y2="611" stroke="#2563EB" stroke-width="2.2" marker-end="url(#arr-blue)"/>
+<circle cx="68" cy="663" r="3.5" fill="#334155"/>
+<line x1="68" y1="663" x2="128.0" y2="663" stroke="#2563EB" stroke-width="2"/>
+<line x1="154.0" y1="663" x2="214" y2="663" stroke="#2563EB" stroke-width="2"/>
+<circle cx="128.0" cy="663" r="3" fill="#FFFFFF" stroke="#1E40AF" stroke-width="1.8"/>
+<circle cx="154.0" cy="663" r="3" fill="#FFFFFF" stroke="#1E40AF" stroke-width="1.8"/>
+<line x1="128.0" y1="654" x2="154.0" y2="654" stroke="#1E40AF" stroke-width="2.2"/>
+<line x1="141.0" y1="654" x2="141.0" y2="648" stroke="#1E40AF" stroke-width="2"/>
+<line x1="135.0" y1="648" x2="147.0" y2="648" stroke="#1E40AF" stroke-width="2.4"/>
+<text x="141.0" y="643" text-anchor="middle" class="btn-lbl">BTN5 (Local)</text>
+<line x1="214" y1="663" x2="300" y2="663" stroke="#2563EB" stroke-width="2.2" marker-end="url(#arr-blue)"/>
+<circle cx="68" cy="715" r="3.5" fill="#334155"/>
+<line x1="68" y1="715" x2="128.0" y2="715" stroke="#2563EB" stroke-width="2"/>
+<line x1="154.0" y1="715" x2="214" y2="715" stroke="#2563EB" stroke-width="2"/>
+<circle cx="128.0" cy="715" r="3" fill="#FFFFFF" stroke="#1E40AF" stroke-width="1.8"/>
+<circle cx="154.0" cy="715" r="3" fill="#FFFFFF" stroke="#1E40AF" stroke-width="1.8"/>
+<line x1="128.0" y1="706" x2="154.0" y2="706" stroke="#1E40AF" stroke-width="2.2"/>
+<line x1="141.0" y1="706" x2="141.0" y2="700" stroke="#1E40AF" stroke-width="2"/>
+<line x1="135.0" y1="700" x2="147.0" y2="700" stroke="#1E40AF" stroke-width="2.4"/>
+<text x="141.0" y="695" text-anchor="middle" class="btn-lbl">BTN6 (Remoto)</text>
+<line x1="214" y1="715" x2="300" y2="715" stroke="#2563EB" stroke-width="2.2" marker-end="url(#arr-blue)"/>
+<text x="155" y="752" text-anchor="middle" font-size="10" font-weight="600" fill="#B45309">Lectura paralela PB10/PB11 por USB</text>
+
+<g filter="url(#shadow)">
+  <rect x="304" y="114" width="264" height="658" rx="12" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="2.6"/>
+  <rect x="304" y="114" width="264" height="52" rx="12" fill="#1D4ED8"/>
+  <rect x="304" y="154" width="264" height="12" fill="#1D4ED8"/>
+  <text x="436.0" y="138" text-anchor="middle" class="mod-hdr">Blue Pill A · Nodo Maestro</text>
+  <text x="436.0" y="156" text-anchor="middle" class="mod-sub">STM32F103C8T6 (BP_A_Master_F)</text>
+</g>
+
+<rect x="299" y="169" width="10" height="14" rx="2" fill="#FDE047" stroke="#A16207" stroke-width="1.2"/>
+<text x="316" y="180" class="pin-lbl">SWD</text>
+<text x="422" y="180" class="pin-fn">PA13 / PA14</text>
+<rect x="299" y="207" width="10" height="14" rx="2" fill="#FDE047" stroke="#A16207" stroke-width="1.2"/>
+<text x="316" y="218" class="pin-lbl">5V / USB</text>
+<text x="422" y="218" class="pin-fn">Micro-USB</text>
+<rect x="299" y="448" width="10" height="14" rx="2" fill="#FDE047" stroke="#A16207" stroke-width="1.2"/>
+<text x="316" y="459" class="pin-lbl">PB12</text>
+<text x="422" y="459" class="pin-fn">BTN1 (In)</text>
+<rect x="299" y="500" width="10" height="14" rx="2" fill="#FDE047" stroke="#A16207" stroke-width="1.2"/>
+<text x="316" y="511" class="pin-lbl">PB13</text>
+<text x="422" y="511" class="pin-fn">BTN2 (In)</text>
+<rect x="299" y="552" width="10" height="14" rx="2" fill="#FDE047" stroke="#A16207" stroke-width="1.2"/>
+<text x="316" y="563" class="pin-lbl">PB14</text>
+<text x="422" y="563" class="pin-fn">BTN3 (In)</text>
+<rect x="299" y="604" width="10" height="14" rx="2" fill="#FDE047" stroke="#A16207" stroke-width="1.2"/>
+<text x="316" y="615" class="pin-lbl">PB15</text>
+<text x="422" y="615" class="pin-fn">BTN4 (In)</text>
+<rect x="299" y="656" width="10" height="14" rx="2" fill="#FDE047" stroke="#A16207" stroke-width="1.2"/>
+<text x="316" y="667" class="pin-lbl">PA10 || PB10</text>
+<text x="422" y="667" class="pin-fn">BTN5 (In)</text>
+<rect x="299" y="708" width="10" height="14" rx="2" fill="#FDE047" stroke="#A16207" stroke-width="1.2"/>
+<text x="316" y="719" class="pin-lbl">PA11 || PB11</text>
+<text x="422" y="719" class="pin-fn">BTN6 (In)</text>
+<rect x="563" y="255" width="10" height="14" rx="2" fill="#FDE047" stroke="#A16207" stroke-width="1.2"/>
+<text x="556" y="266" text-anchor="end" class="pin-lbl">PB9</text>
+<text x="518" y="266" text-anchor="end" class="pin-fn">CAN1_TX</text>
+<rect x="563" y="301" width="10" height="14" rx="2" fill="#FDE047" stroke="#A16207" stroke-width="1.2"/>
+<text x="556" y="312" text-anchor="end" class="pin-lbl">PB8</text>
+<text x="518" y="312" text-anchor="end" class="pin-fn">CAN1_RX (5V tol.)</text>
+
+<rect x="326" y="338" width="220" height="80" rx="8" fill="#FFFFFF" stroke="#93C5FD" stroke-width="1.5"/>
+<text x="436.0" y="360" text-anchor="middle" font-size="11.5" font-weight="700" fill="#1E3A8A">MCU: HSI 8 MHz · Periférico bxCAN</text>
+<text x="436.0" y="379" text-anchor="middle" font-size="10.5" fill="#475569">Remap AFIO CAN1 → PB8 / PB9</text>
+<text x="436.0" y="398" text-anchor="middle" font-size="10.5" font-weight="700" fill="#15803D">LED PC13 (integrado): Modo y ACK</text>
+
+<rect x="418.0" y="767" width="36" height="10" rx="2" fill="#94A3B8" stroke="#334155" stroke-width="1.2"/>
+<text x="436.0" y="760" text-anchor="middle" class="pin-lbl">GND</text>
+<line x1="436.0" y1="777" x2="436.0" y2="852" stroke="#334155" stroke-width="2.6"/>
+
+<circle cx="436.0" cy="852" r="4.5" fill="#334155"/>
+
+<g filter="url(#shadow)">
+  <rect x="682" y="178" width="152" height="326" rx="9" fill="#1E293B" stroke="#0F172A" stroke-width="2"/>
+  <path d="M 746.0 178 A 12 12 0 0 0 770.0 178" fill="#334155" stroke="#64748B" stroke-width="1.5"/>
+  <text x="758.0" y="210" text-anchor="middle" class="mod-hdr">MCP2551 A</text>
+  <text x="758.0" y="228" text-anchor="middle" class="mod-sub-ic">Transceptor CAN</text>
+</g>
+
+<line x1="573" y1="262" x2="673" y2="262" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arr-purple)"/>
+<line x1="676" y1="308" x2="576" y2="308" stroke="#0D9488" stroke-width="2.4" marker-end="url(#arr-teal)"/>
+<text x="625" y="254" text-anchor="middle" font-size="10.5" font-weight="700" fill="#7C3AED">TXD</text>
+<text x="625" y="300" text-anchor="middle" font-size="10.5" font-weight="700" fill="#0D9488">RXD</text>
+<rect x="676" y="256" width="8" height="12" rx="1.5" fill="#E2E8F0" stroke="#475569" stroke-width="1"/>
+<text x="692" y="266" class="pin-lbl-ic">1 TXD</text>
+<rect x="676" y="302" width="8" height="12" rx="1.5" fill="#E2E8F0" stroke="#475569" stroke-width="1"/>
+<text x="692" y="312" class="pin-lbl-ic">4 RXD</text>
+<rect x="676" y="360" width="8" height="12" rx="1.5" fill="#E2E8F0" stroke="#475569" stroke-width="1"/>
+<text x="692" y="370" class="pin-lbl-ic">3 VDD</text>
+<rect x="676" y="414" width="8" height="12" rx="1.5" fill="#E2E8F0" stroke="#475569" stroke-width="1"/>
+<text x="692" y="424" class="pin-lbl-ic">2 VSS</text>
+<rect x="676" y="468" width="8" height="12" rx="1.5" fill="#E2E8F0" stroke="#475569" stroke-width="1"/>
+<text x="692" y="478" class="pin-lbl-ic">8 Rs</text>
+<rect x="832" y="284" width="8" height="12" rx="1.5" fill="#E2E8F0" stroke="#475569" stroke-width="1"/>
+<text x="824" y="294" text-anchor="end" class="pin-lbl-ic">CANH 7</text>
+<rect x="832" y="364" width="8" height="12" rx="1.5" fill="#E2E8F0" stroke="#475569" stroke-width="1"/>
+<text x="824" y="374" text-anchor="end" class="pin-lbl-ic">CANL 6</text>
+<rect x="832" y="444" width="8" height="12" rx="1.5" fill="#E2E8F0" stroke="#475569" stroke-width="1"/>
+<text x="824" y="454" text-anchor="end" class="pin-lbl-ic">VREF 5 (NC)</text>
+<line x1="676" y1="366" x2="604" y2="366" stroke="#DC2626" stroke-width="2.2"/>
+<circle cx="604" cy="366" r="3.5" fill="#DC2626"/>
+<line x1="604" y1="366" x2="604" y2="342" stroke="#DC2626" stroke-width="2.2"/>
+<rect x="587" y="323" width="34" height="19" rx="4" fill="#FEE2E2" stroke="#DC2626" stroke-width="1.2"/>
+<text x="604" y="336" text-anchor="middle" font-size="10.5" font-weight="700" fill="#B91C1C">5 V</text>
+<line x1="604" y1="366" x2="604" y2="542" stroke="#0F766E" stroke-width="2"/>
+<line x1="604" y1="542" x2="604" y2="567.5" stroke="#0F766E" stroke-width="2.2"/>
+<line x1="604" y1="576.5" x2="604" y2="602" stroke="#0F766E" stroke-width="2.2"/>
+<line x1="593" y1="567.5" x2="615" y2="567.5" stroke="#0F766E" stroke-width="2.6"/>
+<line x1="593" y1="576.5" x2="615" y2="576.5" stroke="#0F766E" stroke-width="2.6"/>
+<text x="615" y="576.0" text-anchor="start" class="comp-lbl-teal">100 nF</text>
+<polyline points="604,602 604,652 728,652" fill="none" stroke="#334155" stroke-width="2"/>
+<line x1="676" y1="420" x2="658" y2="420" stroke="#334155" stroke-width="2"/>
+<line x1="658" y1="420" x2="658" y2="852" stroke="#334155" stroke-width="2.2"/>
+<circle cx="658" cy="652" r="3.5" fill="#334155"/>
+<circle cx="658" cy="852" r="4" fill="#334155"/>
+<polyline points="676,474 668,474 668,530 728,530" fill="none" stroke="#334155" stroke-width="2"/>
+<line x1="728" y1="530" x2="728" y2="574.0" stroke="#334155" stroke-width="2.2"/>
+<line x1="728" y1="608.0" x2="728" y2="652" stroke="#334155" stroke-width="2.2"/>
+<polyline points="728.0,574.0 721.0,578.2 735.0,583.9 721.0,589.5 735.0,595.2 721.0,600.9 735.0,604.5 728.0,608.0" fill="none" stroke="#334155" stroke-width="2.2" stroke-linejoin="round"/>
+<text x="740" y="595.0" text-anchor="start" class="comp-lbl">10 kΩ (Rs)</text>
+<text x="740" y="616" font-size="10" fill="#475569">Slope-Control</text>
+<line x1="840" y1="290" x2="912" y2="290" stroke="#D97706" stroke-width="3.2"/>
+<line x1="1008" y1="290" x2="1080" y2="290" stroke="#D97706" stroke-width="3.2"/>
+<line x1="840" y1="370" x2="912" y2="370" stroke="#0284C7" stroke-width="3.2"/>
+<line x1="1008" y1="370" x2="1080" y2="370" stroke="#0284C7" stroke-width="3.2"/>
+
+<path d="M 912 290 C 935 290, 945 370, 960 370 C 975 370, 985 290, 1008 290" fill="none" stroke="#D97706" stroke-width="3.2"/>
+<path d="M 912 370 C 935 370, 945 290, 960 290 C 975 290, 985 370, 1008 370" fill="none" stroke="#0284C7" stroke-width="3.2"/>
+
+<circle cx="872" cy="290" r="4.5" fill="#D97706"/>
+<circle cx="872" cy="370" r="4.5" fill="#0284C7"/>
+<line x1="872" y1="290" x2="872" y2="313.0" stroke="#0F172A" stroke-width="2.2"/>
+<line x1="872" y1="347.0" x2="872" y2="370" stroke="#0F172A" stroke-width="2.2"/>
+<polyline points="872.0,313.0 865.0,317.2 879.0,322.9 865.0,328.6 879.0,334.2 865.0,339.9 879.0,343.5 872.0,347.0" fill="none" stroke="#0F172A" stroke-width="2.2" stroke-linejoin="round"/>
+<text x="882" y="334.0" text-anchor="start" class="comp-lbl">120 Ω</text>
+<circle cx="1048" cy="290" r="4.5" fill="#D97706"/>
+<circle cx="1048" cy="370" r="4.5" fill="#0284C7"/>
+<line x1="1048" y1="290" x2="1048" y2="313.0" stroke="#0F172A" stroke-width="2.2"/>
+<line x1="1048" y1="347.0" x2="1048" y2="370" stroke="#0F172A" stroke-width="2.2"/>
+<polyline points="1048.0,313.0 1041.0,317.2 1055.0,322.9 1041.0,328.6 1055.0,334.2 1041.0,339.9 1055.0,343.5 1048.0,347.0" fill="none" stroke="#0F172A" stroke-width="2.2" stroke-linejoin="round"/>
+<text x="1038" y="334.0" text-anchor="end" class="comp-lbl">120 Ω</text>
+
+<text x="872" y="276" text-anchor="middle" font-size="12" font-weight="700" fill="#B45309">CAN_H</text>
+<text x="1048" y="276" text-anchor="middle" font-size="12" font-weight="700" fill="#B45309">CAN_H</text>
+<text x="872" y="391" text-anchor="middle" font-size="12" font-weight="700" fill="#0369A1">CAN_L</text>
+<text x="1048" y="391" text-anchor="middle" font-size="12" font-weight="700" fill="#0369A1">CAN_L</text>
+
+<rect x="862" y="158" width="196" height="84" rx="9" fill="#FFFBEB" stroke="#F59E0B" stroke-width="1.8"/>
+<text x="960" y="180" text-anchor="middle" font-size="12.5" font-weight="700" fill="#92400E">Bus CAN 2.0A (UTP)</text>
+<text x="960" y="199" text-anchor="middle" font-size="11" font-weight="600" fill="#78350F">250 kbps · Par trenzado</text>
+<text x="960" y="216" text-anchor="middle" font-size="11" font-weight="700" fill="#0F172A">Req ≈ 60 Ω (2 × 120 Ω)</text>
+<text x="960" y="233" text-anchor="middle" font-size="10" fill="#78350F">Tramas 0x010 / 0x020 / 0x030</text>
+
+
+<g filter="url(#shadow)">
+  <rect x="1086" y="178" width="152" height="326" rx="9" fill="#1E293B" stroke="#0F172A" stroke-width="2"/>
+  <path d="M 1150.0 178 A 12 12 0 0 0 1174.0 178" fill="#334155" stroke="#64748B" stroke-width="1.5"/>
+  <text x="1162.0" y="210" text-anchor="middle" class="mod-hdr">MCP2551 B</text>
+  <text x="1162.0" y="228" text-anchor="middle" class="mod-sub-ic">Transceptor CAN</text>
+</g>
+
+<rect x="1080" y="284" width="8" height="12" rx="1.5" fill="#E2E8F0" stroke="#475569" stroke-width="1"/>
+<text x="1096" y="294" class="pin-lbl-ic">7 CANH</text>
+<rect x="1080" y="364" width="8" height="12" rx="1.5" fill="#E2E8F0" stroke="#475569" stroke-width="1"/>
+<text x="1096" y="374" class="pin-lbl-ic">6 CANL</text>
+<rect x="1080" y="444" width="8" height="12" rx="1.5" fill="#E2E8F0" stroke="#475569" stroke-width="1"/>
+<text x="1096" y="454" class="pin-lbl-ic">5 VREF (NC)</text>
+<rect x="1236" y="256" width="8" height="12" rx="1.5" fill="#E2E8F0" stroke="#475569" stroke-width="1"/>
+<text x="1228" y="266" text-anchor="end" class="pin-lbl-ic">TXD 1</text>
+<rect x="1236" y="302" width="8" height="12" rx="1.5" fill="#E2E8F0" stroke="#475569" stroke-width="1"/>
+<text x="1228" y="312" text-anchor="end" class="pin-lbl-ic">RXD 4</text>
+<rect x="1236" y="360" width="8" height="12" rx="1.5" fill="#E2E8F0" stroke="#475569" stroke-width="1"/>
+<text x="1228" y="370" text-anchor="end" class="pin-lbl-ic">VDD 3</text>
+<rect x="1236" y="414" width="8" height="12" rx="1.5" fill="#E2E8F0" stroke="#475569" stroke-width="1"/>
+<text x="1228" y="424" text-anchor="end" class="pin-lbl-ic">VSS 2</text>
+<rect x="1236" y="468" width="8" height="12" rx="1.5" fill="#E2E8F0" stroke="#475569" stroke-width="1"/>
+<text x="1228" y="478" text-anchor="end" class="pin-lbl-ic">Rs 8</text>
+<line x1="1348" y1="262" x2="1247" y2="262" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arr-purple)"/>
+<line x1="1244" y1="308" x2="1344" y2="308" stroke="#0D9488" stroke-width="2.4" marker-end="url(#arr-teal)"/>
+<text x="1295" y="254" text-anchor="middle" font-size="10.5" font-weight="700" fill="#7C3AED">TXD</text>
+<text x="1295" y="300" text-anchor="middle" font-size="10.5" font-weight="700" fill="#0D9488">RXD</text>
+<line x1="1244" y1="366" x2="1316" y2="366" stroke="#DC2626" stroke-width="2.2"/>
+<circle cx="1316" cy="366" r="3.5" fill="#DC2626"/>
+<line x1="1316" y1="366" x2="1316" y2="342" stroke="#DC2626" stroke-width="2.2"/>
+<rect x="1299" y="323" width="34" height="19" rx="4" fill="#FEE2E2" stroke="#DC2626" stroke-width="1.2"/>
+<text x="1316" y="336" text-anchor="middle" font-size="10.5" font-weight="700" fill="#B91C1C">5 V</text>
+<line x1="1316" y1="366" x2="1316" y2="542" stroke="#0F766E" stroke-width="2"/>
+<line x1="1316" y1="542" x2="1316" y2="567.5" stroke="#0F766E" stroke-width="2.2"/>
+<line x1="1316" y1="576.5" x2="1316" y2="602" stroke="#0F766E" stroke-width="2.2"/>
+<line x1="1305" y1="567.5" x2="1327" y2="567.5" stroke="#0F766E" stroke-width="2.6"/>
+<line x1="1305" y1="576.5" x2="1327" y2="576.5" stroke="#0F766E" stroke-width="2.6"/>
+<text x="1305" y="576.0" text-anchor="end" class="comp-lbl-teal">100 nF</text>
+<polyline points="1316,602 1316,652 1192,652" fill="none" stroke="#334155" stroke-width="2"/>
+<line x1="1244" y1="420" x2="1262" y2="420" stroke="#334155" stroke-width="2"/>
+<line x1="1262" y1="420" x2="1262" y2="652" stroke="#334155" stroke-width="2"/>
+<circle cx="1262" cy="652" r="3.5" fill="#334155"/>
+<polyline points="1244,474 1252,474 1252,530 1192,530" fill="none" stroke="#334155" stroke-width="2"/>
+<line x1="1192" y1="530" x2="1192" y2="574.0" stroke="#334155" stroke-width="2.2"/>
+<line x1="1192" y1="608.0" x2="1192" y2="652" stroke="#334155" stroke-width="2.2"/>
+<polyline points="1192.0,574.0 1185.0,578.2 1199.0,583.9 1185.0,589.5 1199.0,595.2 1185.0,600.9 1199.0,604.5 1192.0,608.0" fill="none" stroke="#334155" stroke-width="2.2" stroke-linejoin="round"/>
+<text x="1180" y="595.0" text-anchor="end" class="comp-lbl">10 kΩ (Rs)</text>
+<text x="1180" y="616" text-anchor="end" font-size="10" fill="#475569">Slope-Control</text>
+<line x1="1262" y1="652" x2="1262" y2="852" stroke="#334155" stroke-width="2.2"/>
+<circle cx="1262" cy="852" r="4" fill="#334155"/>
+<line x1="1348" y1="726" x2="1235" y2="726" stroke="#16A34A" stroke-width="2.2"/>
+<line x1="1235" y1="726" x2="1212.5" y2="726" stroke="#16A34A" stroke-width="2.2"/>
+<line x1="1192.5" y1="726" x2="1170" y2="726" stroke="#334155" stroke-width="2.2"/>
+<polygon points="1212.5,717 1212.5,735 1194.5,726" fill="#16A34A" fill-opacity="0.28" stroke="#16A34A" stroke-width="2"/>
+<line x1="1193.5" y1="716" x2="1193.5" y2="736" stroke="#16A34A" stroke-width="2.4"/>
+<line x1="1200.5" y1="714" x2="1194.5" y2="707" stroke="#16A34A" stroke-width="1.6" marker-end="url(#arr-green)"/>
+<line x1="1207.5" y1="715" x2="1201.5" y2="708" stroke="#16A34A" stroke-width="1.6" marker-end="url(#arr-green)"/>
+<line x1="1170" y1="726" x2="1108.0" y2="726" stroke="#334155" stroke-width="2.2"/>
+<line x1="1142.0" y1="726" x2="1080" y2="726" stroke="#334155" stroke-width="2.2"/>
+<polyline points="1108.0,726.0 1112.2,720.0 1117.9,732.0 1123.5,720.0 1129.2,732.0 1134.8,720.0 1138.5,732.0 1142.0,726.0" fill="none" stroke="#334155" stroke-width="2.2" stroke-linejoin="round"/>
+<text x="1125.0" y="746" text-anchor="middle" class="comp-lbl">100 Ω</text>
+<polyline points="1080,726 1055,726 1055,852" fill="none" stroke="#334155" stroke-width="2.2"/>
+<circle cx="1055" cy="852" r="4" fill="#334155"/>
+<text x="1165" y="694" text-anchor="middle" font-size="10.5" font-weight="700" fill="#15803D">LED Modo (Local/Remoto)</text>
+
+<g filter="url(#shadow)">
+  <rect x="1352" y="114" width="262" height="658" rx="12" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="2.6"/>
+  <rect x="1352" y="114" width="262" height="52" rx="12" fill="#1D4ED8"/>
+  <rect x="1352" y="154" width="262" height="12" fill="#1D4ED8"/>
+  <text x="1483.0" y="138" text-anchor="middle" class="mod-hdr">Blue Pill B · Nodo Esclavo</text>
+  <text x="1483.0" y="156" text-anchor="middle" class="mod-sub">STM32F103C8T6 / CKS32 (BP_B_Salve_F)</text>
+</g>
+
+<rect x="1347" y="255" width="10" height="14" rx="2" fill="#FDE047" stroke="#A16207" stroke-width="1.2"/>
+<text x="1364" y="266" class="pin-lbl">PB9</text>
+<text x="1398" y="266" class="pin-fn">CAN1_TX</text>
+<rect x="1347" y="301" width="10" height="14" rx="2" fill="#FDE047" stroke="#A16207" stroke-width="1.2"/>
+<text x="1364" y="312" class="pin-lbl">PB8</text>
+<text x="1398" y="312" class="pin-fn">CAN1_RX (5V)</text>
+<rect x="1347" y="719" width="10" height="14" rx="2" fill="#FDE047" stroke="#A16207" stroke-width="1.2"/>
+<text x="1364" y="730" class="pin-lbl">PB0</text>
+<text x="1398" y="730" class="pin-fn">LED_REFLEJO (Out)</text>
+
+<rect x="1374" y="418" width="218" height="106" rx="8" fill="#FFFFFF" stroke="#93C5FD" stroke-width="1.5"/>
+<text x="1483.0" y="442" text-anchor="middle" font-size="11.5" font-weight="700" fill="#1E3A8A">MCU: HSI 8 MHz · bxCAN</text>
+<text x="1483.0" y="462" text-anchor="middle" font-size="10.5" fill="#475569">TIM3_CH1: PWM (~111,1 Hz)</text>
+<text x="1483.0" y="481" text-anchor="middle" font-size="10.5" fill="#475569">TIM2: Encoder TI1 (2x · 2520 t/v)</text>
+<text x="1483.0" y="500" text-anchor="middle" font-size="10.5" font-weight="700" fill="#15803D">LED PC13 (integrado): Mov / Error</text>
+
+<rect x="1609" y="227" width="10" height="14" rx="2" fill="#FDE047" stroke="#A16207" stroke-width="1.2"/>
+<text x="1602" y="238" text-anchor="end" class="pin-lbl">PA6</text>
+<text x="1566" y="238" text-anchor="end" class="pin-fn">TIM3_CH1 (PWM)</text>
+<rect x="1609" y="285" width="10" height="14" rx="2" fill="#FDE047" stroke="#A16207" stroke-width="1.2"/>
+<text x="1602" y="296" text-anchor="end" class="pin-lbl">PA2</text>
+<text x="1566" y="296" text-anchor="end" class="pin-fn">IN1 (Dir)</text>
+<rect x="1609" y="343" width="10" height="14" rx="2" fill="#FDE047" stroke="#A16207" stroke-width="1.2"/>
+<text x="1602" y="354" text-anchor="end" class="pin-lbl">PA3</text>
+<text x="1566" y="354" text-anchor="end" class="pin-fn">IN2 (Dir)</text>
+<rect x="1609" y="598" width="10" height="14" rx="2" fill="#FDE047" stroke="#A16207" stroke-width="1.2"/>
+<text x="1602" y="609" text-anchor="end" class="pin-lbl">PA0</text>
+<text x="1566" y="609" text-anchor="end" class="pin-fn">TIM2_CH1 (Enc A)</text>
+<rect x="1609" y="653" width="10" height="14" rx="2" fill="#FDE047" stroke="#A16207" stroke-width="1.2"/>
+<text x="1602" y="664" text-anchor="end" class="pin-lbl">PA1</text>
+<text x="1566" y="664" text-anchor="end" class="pin-fn">TIM2_CH2 (Enc B)</text>
+
+<rect x="1465.0" y="767" width="36" height="10" rx="2" fill="#94A3B8" stroke="#334155" stroke-width="1.2"/>
+<text x="1483.0" y="760" text-anchor="middle" class="pin-lbl">GND</text>
+<line x1="1483.0" y1="777" x2="1483.0" y2="852" stroke="#334155" stroke-width="2.6"/>
+
+<circle cx="1483.0" cy="852" r="4.5" fill="#334155"/>
+
+<g filter="url(#shadow)">
+  <rect x="1690" y="158" width="186" height="248" rx="10" fill="#FEF2F2" stroke="#DC2626" stroke-width="2.4"/>
+  <rect x="1690" y="158" width="186" height="46" rx="10" fill="#B91C1C"/>
+  <rect x="1690" y="192" width="186" height="12" fill="#B91C1C"/>
+  <text x="1783.0" y="180" text-anchor="middle" class="mod-hdr">Puente H L298N</text>
+  <text x="1783.0" y="196" text-anchor="middle" font-size="10.5" fill="#FECACA">Driver Potencia (Puente A)</text>
+</g>
+
+<rect x="1694" y="102" width="178" height="32" rx="6" fill="#FFF7ED" stroke="#EA580C" stroke-width="1.6"/>
+<text x="1783.0" y="122" text-anchor="middle" font-size="11" font-weight="700" fill="#9A3412">Fuente Potencia DC (VMS)</text>
+<line x1="1783.0" y1="134" x2="1783.0" y2="158" stroke="#DC2626" stroke-width="2.8"/>
+<text x="1793.0" y="150" font-size="10" font-weight="700" fill="#DC2626">VMS / 5V</text>
+
+<line x1="1619" y1="234" x2="1681" y2="234" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arr-purple)"/>
+<text x="1652" y="227" text-anchor="middle" font-size="10.5" font-weight="700" fill="#7C3AED">PWM</text>
+<rect x="1686" y="228" width="8" height="12" rx="1.5" fill="#FCA5A5" stroke="#991B1B" stroke-width="1"/>
+<text x="1700" y="238" class="pin-lbl">ENA</text>
+<line x1="1619" y1="292" x2="1681" y2="292" stroke="#2563EB" stroke-width="2.4" marker-end="url(#arr-blue)"/>
+<text x="1652" y="285" text-anchor="middle" font-size="10.5" font-weight="700" fill="#2563EB">Dir</text>
+<rect x="1686" y="286" width="8" height="12" rx="1.5" fill="#FCA5A5" stroke="#991B1B" stroke-width="1"/>
+<text x="1700" y="296" class="pin-lbl">IN1</text>
+<line x1="1619" y1="350" x2="1681" y2="350" stroke="#2563EB" stroke-width="2.4" marker-end="url(#arr-blue)"/>
+<text x="1652" y="343" text-anchor="middle" font-size="10.5" font-weight="700" fill="#2563EB">Dir</text>
+<rect x="1686" y="344" width="8" height="12" rx="1.5" fill="#FCA5A5" stroke="#991B1B" stroke-width="1"/>
+<text x="1700" y="354" class="pin-lbl">IN2</text>
+<text x="1866" y="388" text-anchor="end" class="pin-lbl">GND</text>
+<polyline points="1876,384 1894,384 1894,852" fill="none" stroke="#334155" stroke-width="2.4"/>
+<circle cx="1894" cy="852" r="4" fill="#334155"/>
+
+<text x="1740" y="395" text-anchor="middle" class="pin-lbl" style="fill:#991B1B;">OUT1</text>
+<text x="1826" y="395" text-anchor="middle" class="pin-lbl" style="fill:#991B1B;">OUT2</text>
+<line x1="1740" y1="406" x2="1740" y2="520" stroke="#EA580C" stroke-width="3"/>
+<line x1="1826" y1="406" x2="1826" y2="520" stroke="#EA580C" stroke-width="3"/>
+<text x="1783" y="468" text-anchor="middle" font-size="11" font-weight="700" fill="#C2410C">Potencia Motor</text>
+
+
+<g filter="url(#shadow)">
+  <rect x="1690" y="520" width="186" height="218" rx="10" fill="#F0FDF4" stroke="#15803D" stroke-width="2.4"/>
+  <rect x="1690" y="520" width="186" height="44" rx="10" fill="#15803D"/>
+  <rect x="1690" y="552" width="186" height="12" fill="#15803D"/>
+  <text x="1783.0" y="541" text-anchor="middle" class="mod-hdr">Motor DC + Encoder</text>
+  <text x="1783.0" y="557" text-anchor="middle" font-size="10.5" fill="#DCFCE7">Corona 42 d · 2520 ticks/vuelta</text>
+</g>
+<polyline points="1740,564 1740,606 1759,606" fill="none" stroke="#EA580C" stroke-width="2.6"/>
+<polyline points="1826,564 1826,606 1807,606" fill="none" stroke="#EA580C" stroke-width="2.6"/>
+<circle cx="1783" cy="606" r="24" fill="#FFFFFF" stroke="#15803D" stroke-width="2.2"/>
+<text x="1783" y="612" text-anchor="middle" font-size="17" font-weight="700" fill="#15803D">M</text>
+<line x1="1783" y1="630" x2="1783" y2="660" stroke="#64748B" stroke-width="2" stroke-dasharray="4,3"/>
+<rect x="1739" y="660" width="88" height="44" rx="6" fill="#FFFFFF" stroke="#0D9488" stroke-width="1.8"/>
+<text x="1783" y="679" text-anchor="middle" font-size="11" font-weight="700" fill="#0F766E">Encoder</text>
+<text x="1783" y="694" text-anchor="middle" font-size="10" fill="#475569">Cuadratura A/B</text>
+
+<text x="1700" y="609" class="pin-lbl" style="fill:#0F766E;">Ch A</text>
+<text x="1700" y="664" class="pin-lbl" style="fill:#0F766E;">Ch B</text>
+<text x="1783.0" y="728" text-anchor="middle" class="pin-lbl">GND</text>
+<line x1="1690" y1="605" x2="1623" y2="605" stroke="#0D9488" stroke-width="2.4" marker-end="url(#arr-teal)"/>
+<line x1="1690" y1="660" x2="1623" y2="660" stroke="#0D9488" stroke-width="2.4" marker-end="url(#arr-teal)"/>
+<text x="1652" y="597" text-anchor="middle" font-size="10.5" font-weight="700" fill="#0F766E">Canal A</text>
+<text x="1652" y="652" text-anchor="middle" font-size="10.5" font-weight="700" fill="#0F766E">Canal B</text>
+<line x1="1783.0" y1="738" x2="1783.0" y2="852" stroke="#334155" stroke-width="2.4"/>
+
+<circle cx="1783.0" cy="852" r="4" fill="#334155"/>
+
+<line x1="68" y1="852" x2="1894" y2="852" stroke="#334155" stroke-width="3.8"/>
+<text x="960" y="905" text-anchor="middle" font-size="12" font-weight="700" fill="#1E293B">MASA COMÚN UNIFICADA (GND) — Blue Pill A · MCP2551 A/B · Blue Pill B · Driver L298N · Encoder · Fuente de Potencia</text>
+
+<line x1="960" y1="852" x2="960" y2="862" stroke="#334155" stroke-width="2.4"/>
+<line x1="946" y1="862" x2="974" y2="862" stroke="#334155" stroke-width="2.6"/>
+<line x1="951" y1="868" x2="969" y2="868" stroke="#334155" stroke-width="2.2"/>
+<line x1="956" y1="874" x2="964" y2="874" stroke="#334155" stroke-width="2.0"/>
+
+<rect x="36" y="936" width="1848" height="96" rx="10" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="1.4"/>
+<text x="60" y="968" font-size="12" font-weight="700" fill="#0F172A">Referencias de cableado:</text>
+
+<line x1="255" y1="964" x2="285" y2="964" stroke="#2563EB" stroke-width="3.6"/>
+<text x="293" y="968" font-size="11.5" font-weight="600" fill="#334155">Entradas / Control Digital (GPIO)</text>
+<line x1="545" y1="964" x2="575" y2="964" stroke="#7C3AED" stroke-width="3.6"/>
+<text x="583" y="968" font-size="11.5" font-weight="600" fill="#334155">CAN TX / PWM (Salida MCU)</text>
+<line x1="815" y1="964" x2="845" y2="964" stroke="#0D9488" stroke-width="3.6"/>
+<text x="853" y="968" font-size="11.5" font-weight="600" fill="#334155">CAN RX / Encoder (Entrada MCU)</text>
+<line x1="1110" y1="964" x2="1140" y2="964" stroke="#D97706" stroke-width="3.6"/>
+<text x="1148" y="968" font-size="11.5" font-weight="600" fill="#334155">Bus CAN_H (Par trenzado)</text>
+<line x1="1375" y1="964" x2="1405" y2="964" stroke="#0284C7" stroke-width="3.6"/>
+<text x="1413" y="968" font-size="11.5" font-weight="600" fill="#334155">Bus CAN_L (Par trenzado)</text>
+<line x1="1640" y1="964" x2="1670" y2="964" stroke="#EA580C" stroke-width="3.6"/>
+<text x="1678" y="968" font-size="11.5" font-weight="600" fill="#334155">Alimentación / Potencia Motor</text>
+
+<text x="60" y="1006" font-size="11.5" fill="#475569">Notas técnicas: 1) CAN1 remapeado por AFIO a PB8/PB9 (pines tolerantes a 5 V). 2) BTN5 y BTN6 leídos en paralelo (PA10||PB10 y PA11||PB11) por pull-down USB en PA11. 3) Cada MCP2551 incluye desacople de 100 nF (VDD–GND) y Rs = 10 kΩ a GND.</text>
+</svg>

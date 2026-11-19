@@ -79,6 +79,8 @@ typedef enum {
 #define POS_MIN_DUTY           550    /* Fuerza mínima para vencer fricción en retorno */
 #define POS_MAX_DUTY           700    /* Velocidad máxima de retorno */
 #define GO_HOME_TIMEOUT_MS     30000  /* 30 s de tiempo máximo para desandar hasta 2 vueltas de engranaje */
+#define MOTOR_STALL_TIMEOUT_MS 1200   /* 1.2 s sin pulsos de encoder con motor energizado -> Falla motor / L298N apagado */
+#define MOTOR_STALL_MIN_TICKS  4      /* Avance mínimo en ticks para confirmar que el motor responde */
 
 #define ENCODER_POLARITY       1      /* Polaridad de encoder */
 /* USER CODE END PD */
@@ -101,7 +103,7 @@ volatile int32_t target_position = 0;       /* Posición objetivo para Ir a Home
 /* Variables para el barrido oscilante por PPR */
 volatile ScanPhase_t scan_phase = SCAN_PHASE_FORWARD;
 int32_t leg_start_ticks = 0;                /* Posición de inicio de cada tramo de giro */
-uint32_t scan_pause_timer = 0;              /* Temporizador no bloqueante para el delay de 1s */
+uint32_t scan_pause_timer = 0;              /* Temporizador para el delay de 1s */
 
 /* Variables para control inteligente y anti-embalamiento de Go to Home */
 volatile int8_t motor_dir_sign = 1;         /* Signo de dirección de motor (+1 o -1 auto-calibrado) */
@@ -110,6 +112,9 @@ uint32_t go_home_start_time = 0;
 
 /* Seguimiento del sentido actual del motor para el impulso de arranque (kick-start) */
 int8_t current_motor_dir = 0;               /* 0: frenado, 1: adelante, -1: atrás */
+uint8_t kick_active = 0;                    /* 1 mientras dura el pulso de arranque de 35 ms */
+uint32_t kick_start_tick = 0;               /* Marca de tiempo de inicio del kick-start */
+uint16_t target_pwm_duty = 0;               /* Ciclo util nominal al que baja tras el kick-start */
 
 /* Banderas de eventos de botones recibidos por bus CAN desde BP_A_Master_F */
 volatile uint8_t can_btn1_flag = 0;
@@ -118,15 +123,21 @@ volatile uint8_t can_btn3_flag = 0;
 volatile uint8_t can_btn4_flag = 0;
 volatile int32_t can_step_ticks = 0;        /* Pasos relativos solicitados por CAN (+ o - ticks) */
 
-/* Temporizadores no bloqueantes para telemetria CAN (Fase B) y parpadeo de falla (Fase C) */
+/* Temporizadores para FSM (5 ms), telemetria CAN (50 ms), destello Home y falla */
+uint32_t last_fsm_tick = 0;
 uint32_t last_telemetry_tick = 0;
 uint32_t error_blink_tick = 0;
+uint8_t home_blink_active = 0;
+uint32_t home_blink_tick = 0;
+int32_t stall_ref_ticks = 0;                /* Posición de referencia para detección de motor desconectado / L298N sin energía */
+uint32_t stall_timer_tick = 0;              /* Marca de tiempo de último avance de encoder con motor activo */
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 void Motor_SetSpeed(int16_t speed);
+void Motor_ServiceKickStart(void);
 void Encoder_Update(void);
 void CAN_Filter_Config(void);
 void CAN_ProcessRxMessages(void);
@@ -155,43 +166,81 @@ void Motor_SetSpeed(int16_t speed)
   {
     HAL_GPIO_WritePin(GPIOA, Escribe_IN1_Pin, GPIO_PIN_SET);
     HAL_GPIO_WritePin(GPIOA, Escribe_IN2_Pin, GPIO_PIN_RESET);
+    target_pwm_duty = (uint16_t)speed;
 
-    /* Si estaba detenido o girando al revés, dar golpe de arranque para vencer inercia */
+    /* Si estaba detenido o girando al revés, iniciar golpe de arranque */
     if (current_motor_dir != 1)
     {
       current_motor_dir = 1;
-      if (speed < KICK_DUTY && KICK_TIME_MS > 0)
+      if (target_pwm_duty < KICK_DUTY && KICK_TIME_MS > 0)
       {
+        kick_active = 1;
+        kick_start_tick = HAL_GetTick();
         __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, KICK_DUTY);
-        HAL_Delay(KICK_TIME_MS);
+        return;
       }
     }
-    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, (uint32_t)speed);
+    if (kick_active)
+    {
+      if ((HAL_GetTick() - kick_start_tick) < KICK_TIME_MS)
+      {
+        __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, KICK_DUTY);
+        return;
+      }
+      kick_active = 0;
+    }
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, target_pwm_duty);
   }
   else if (speed < 0)
   {
     HAL_GPIO_WritePin(GPIOA, Escribe_IN1_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(GPIOA, Escribe_IN2_Pin, GPIO_PIN_SET);
+    target_pwm_duty = (uint16_t)(-speed);
 
-    /* Si estaba detenido o girando al revés, dar golpe de arranque para vencer inercia */
+    /* Si estaba detenido o girando al revés, iniciar golpe de arranque */
     if (current_motor_dir != -1)
     {
       current_motor_dir = -1;
-      if ((-speed) < KICK_DUTY && KICK_TIME_MS > 0)
+      if (target_pwm_duty < KICK_DUTY && KICK_TIME_MS > 0)
       {
+        kick_active = 1;
+        kick_start_tick = HAL_GetTick();
         __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, KICK_DUTY);
-        HAL_Delay(KICK_TIME_MS);
+        return;
       }
     }
-    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, (uint32_t)(-speed));
+    if (kick_active)
+    {
+      if ((HAL_GetTick() - kick_start_tick) < KICK_TIME_MS)
+      {
+        __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, KICK_DUTY);
+        return;
+      }
+      kick_active = 0;
+    }
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, target_pwm_duty);
   }
   else
   {
     /* Freno activo */
     current_motor_dir = 0;
+    kick_active = 0;
+    target_pwm_duty = 0;
     HAL_GPIO_WritePin(GPIOA, Escribe_IN1_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(GPIOA, Escribe_IN2_Pin, GPIO_PIN_RESET);
     __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
+  }
+}
+
+/**
+  * @brief  Supervisa el fin del impulso de arranque (KICK_TIME_MS)
+  */
+void Motor_ServiceKickStart(void)
+{
+  if (kick_active && (HAL_GetTick() - kick_start_tick) >= KICK_TIME_MS)
+  {
+    kick_active = 0;
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, target_pwm_duty);
   }
 }
 
@@ -346,6 +395,8 @@ void Slave_EnterState(SystemState_t next_state)
 
     case STATE_SCANNING:
       leg_start_ticks = total_encoder_ticks;
+      stall_ref_ticks = total_encoder_ticks;
+      stall_timer_tick = HAL_GetTick();
       scan_phase = SCAN_PHASE_FORWARD;
       HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET); /* LED PC13 encendido en movimiento */
       Motor_SetSpeed(SWEEP_DUTY);
@@ -353,6 +404,8 @@ void Slave_EnterState(SystemState_t next_state)
 
     case STATE_HOMING:
     case STATE_POSITIONING:
+      stall_ref_ticks = total_encoder_ticks;
+      stall_timer_tick = HAL_GetTick();
       HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET); /* LED PC13 encendido en movimiento */
       break;
 
@@ -395,12 +448,12 @@ void Slave_CalibrateHome(void)
   __HAL_TIM_SET_COUNTER(&htim2, 0);
   last_timer_cnt = 0;
 
-  /* Destello breve de confirmacion en PC13 */
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-  HAL_Delay(120);
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-
   Slave_EnterState(STATE_HOMED);
+
+  /* Iniciar destello de 120 ms en PC13 para confirmar calibracion Home */
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+  home_blink_active = 1;
+  home_blink_tick = HAL_GetTick();
 }
 
 /**
@@ -446,6 +499,8 @@ void Slave_RunPositionControl(int32_t step_req, uint8_t btn2, uint8_t btn3)
     }
     go_home_initial_error = abs(target_position - total_encoder_ticks);
     go_home_start_time = HAL_GetTick();
+    stall_ref_ticks = total_encoder_ticks;
+    stall_timer_tick = HAL_GetTick();
   }
 
   /* Error de posicion respecto al objetivo */
@@ -548,6 +603,8 @@ int main(void)
   total_encoder_ticks = 0;
   home_position = 0;
   target_position = 0;
+  last_fsm_tick = HAL_GetTick();
+  last_telemetry_tick = HAL_GetTick();
   Slave_EnterState(STATE_HOMED);
   /* USER CODE END 2 */
 
@@ -555,13 +612,17 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* 0. Procesar mensajes CAN pendientes en FIFO0 (respaldo por polling + interrupción) */
+    /* 0. Tareas de tiempo real sin retardo: Recepción CAN, Conteo de Encoder y Fin de Kick-Start */
     CAN_ProcessRxMessages();
-
-    /* 1. Actualizar el conteo continuo del encoder (32 bits anti-desbordamiento) */
     Encoder_Update();
+    Motor_ServiceKickStart();
 
-    /* 2. Capturar los eventos de BTN1..BTN4 y pasos angulares recibidos por CAN desde BP_A_Master_F */
+    /* 1. Ejecución periódica de la Máquina de Estados cada 5 ms (200 Hz) */
+    if ((HAL_GetTick() - last_fsm_tick) >= 5)
+    {
+      last_fsm_tick = HAL_GetTick();
+
+      /* 2. Capturar los eventos de BTN1..BTN4 y pasos angulares recibidos por CAN desde BP_A_Master_F */
     uint8_t btn1 = can_btn1_flag; can_btn1_flag = 0;
     uint8_t btn2 = can_btn2_flag; can_btn2_flag = 0;
     uint8_t btn3 = can_btn3_flag; can_btn3_flag = 0;
@@ -574,7 +635,7 @@ int main(void)
       Slave_TransitionToRest();
     }
 
-    /* 4. VERIFICACIÓN DE LÍMITE MECÁNICO DE SEGURIDAD */
+    /* 4. VERIFICACIÓN DE LÍMITE MECÁNICO Y DETECCIÓN DE MOTOR DESCONECTADO / L298N SIN ENERGÍA */
     if (current_state == STATE_SCANNING ||
         current_state == STATE_HOMING   ||
         current_state == STATE_POSITIONING)
@@ -582,6 +643,25 @@ int main(void)
       if (abs(total_encoder_ticks - home_position) >= MAX_ENCODER_LIMIT)
       {
         Slave_EnterState(STATE_ERROR_LIMIT);
+      }
+      else if (current_motor_dir != 0)
+      {
+        /* Si el puente H está comandando giro pero el encoder no avanza en 1.2 s -> Falla de motor */
+        if (abs(total_encoder_ticks - stall_ref_ticks) >= MOTOR_STALL_MIN_TICKS)
+        {
+          stall_ref_ticks = total_encoder_ticks;
+          stall_timer_tick = HAL_GetTick();
+        }
+        else if ((HAL_GetTick() - stall_timer_tick) >= MOTOR_STALL_TIMEOUT_MS)
+        {
+          Slave_EnterState(STATE_ERROR_LIMIT);
+        }
+      }
+      else
+      {
+        /* En pausa entre tramos de barrido, mantener fresco el temporizador de atasco */
+        stall_ref_ticks = total_encoder_ticks;
+        stall_timer_tick = HAL_GetTick();
       }
     }
 
@@ -591,7 +671,18 @@ int main(void)
       case STATE_IDLE:
       case STATE_HOMED:
         Motor_SetSpeed(0);
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET); /* LED PC13 apagado en reposo */
+        if (home_blink_active)
+        {
+          if ((HAL_GetTick() - home_blink_tick) >= 120)
+          {
+            home_blink_active = 0;
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+          }
+        }
+        else
+        {
+          HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET); /* LED PC13 apagado en reposo */
+        }
 
         /* Sincronizar estado de reposo según si el eje está dentro de ±8° (±56 ticks) de Home */
         if (abs(total_encoder_ticks - home_position) <= HOMED_TOLERANCE_TICKS)
@@ -693,7 +784,7 @@ int main(void)
 
       case STATE_ERROR_LIMIT:
         Motor_SetSpeed(0);
-        /* Parpadeo no bloqueante de advertencia cada 100 ms */
+        /* Blink de advertencia cada 100 ms */
         if ((HAL_GetTick() - error_blink_tick) >= 100)
         {
           error_blink_tick = HAL_GetTick();
@@ -714,16 +805,15 @@ int main(void)
       default:
         Slave_TransitionToRest();
         break;
+      }
     }
 
-    /* 4. Transmitir telemetria de posicion y estado hacia BP_A (cada 50 ms / 20 Hz) */
+    /* 6. Transmitir telemetria de posicion y estado hacia BP_A (cada 50 ms / 20 Hz) */
     if ((HAL_GetTick() - last_telemetry_tick) >= 50)
     {
       last_telemetry_tick = HAL_GetTick();
       CAN_SendTelemetry();
     }
-
-    HAL_Delay(5);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

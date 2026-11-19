@@ -297,11 +297,16 @@ Máquinas de Estados Finitas (FSM) con funciones de transición explícitas:
    - `STATE_HOMING (3)`: Movimiento en lazo cerrado retornando hacia el origen
      `home_position = 0`. Al llegar dentro de `POS_DEADBAND_TICKS (5)`, transiciona
      mediante `Slave_TransitionToRest()` a `STATE_HOMED (2)`.
-   - `STATE_ERROR_LIMIT (4)`: Estado de bloqueo seguro ante exceso de límite
-     mecánico (`|pos| >= MAX_ENCODER_LIMIT = 25000 ticks`) o vencimiento del
-     timeout de movimiento (`30 s`). Frena el motor, parpadea `PC13` cada 100 ms
-     de forma no bloqueante y solo permite salir mediante `STOP (BTN4)`,
-     `Fijar Home (BTN2)` o `BTN1`.
+   - `STATE_ERROR_LIMIT (4)`: Estado de bloqueo seguro ante:
+     a) Exceso de límite mecánico (`|pos| >= MAX_ENCODER_LIMIT = 25000 ticks`).
+     b) Vencimiento del timeout global de posicionamiento (`30 s`).
+     c) **Detección de motor desconectado / L298N sin energía (`MOTOR_STALL_TIMEOUT_MS = 1200 ms`)**:
+        Si el puente H está comandando giro activo (`current_motor_dir != 0` en
+        `SCANNING`, `HOMING` o `POSITIONING`) pero el encoder no registra al menos
+        `MOTOR_STALL_MIN_TICKS = 4` pulsos en `1,2 s`, frena inmediatamente el
+        motor (`Motor_SetSpeed(0)`), pasa a `STATE_ERROR_LIMIT (4)`, parpadea `PC13`
+        cada 100 ms y notifica a la Placa A y a la HMI (`FALLA MOTOR` + banner rojo).
+     Solo permite salir mediante `STOP (BTN4)`, `Fijar Home (BTN2)` o `BTN1`.
    - `STATE_POSITIONING (5)`: Movimiento en lazo cerrado hacia un ángulo relativo
      comandado desde la HMI (`±30°`, `±90°`, `±180°`, `±360°`). Si recibe nuevos
      pasos angulares en tránsito, acumula el objetivo dinámicamente. Al llegar al
@@ -329,7 +334,30 @@ Máquinas de Estados Finitas (FSM) con funciones de transición explícitas:
      únicamente a acciones de parada/desbloqueo (`1`, `2`, `4`) y retorna a
      `MASTER_LOCAL` o `MASTER_REMOTE` en cuanto la Placa B sale del estado de error.
    - Funciones modulares implementadas en `BP_A_Master_F/Core/Src/main.c`:
-     `Master_EnterState()`, `Master_SyncModeLed()` y `Master_PollModeSelection()`.
+     `Master_EnterState()`, `Master_SyncModeLed()`, `Master_PollModeSelection()` y
+     `Master_UpdateAckBlink()`.
+
+3. **Arquitectura 100% No Bloqueante (Cero `HAL_Delay()` en ambos Microcontroladores)**:
+   - Se eliminaron la totalidad de las llamadas bloqueantes `HAL_Delay()` en ambos
+     nodos (`BP_A_Master_F` y `BP_B_Salve_F`), reemplazándolas por temporizadores
+     cooperativos basados en el contador del sistema `HAL_GetTick()` (SysTick de 1 ms):
+     - **Planificador periódico de la FSM (`last_fsm_tick`, cada `5 ms` / `200 Hz`)**:
+       La lectura de mensajes CAN (`CAN_ProcessRxMessages()`) y la acumulación del
+       encoder de 32 bits (`Encoder_Update()`) se ejecutan en cada ciclo libre de
+       CPU sin esperas, mientras que la lógica de las máquinas de estados se evalúa
+       de forma determinista cada `5 ms`.
+     - **Impulso de arranque no bloqueante (`Motor_SetSpeed()` + `Motor_ServiceKickStart()`)**:
+       En `BP_B_Salve_F`, al salir del reposo o invertir el giro, se activa
+       `kick_active = 1` con `KICK_DUTY = 950` y se registra `kick_start_tick = HAL_GetTick()`.
+       En los ciclos siguientes, `Motor_ServiceKickStart()` verifica el vencimiento de
+       `KICK_TIME_MS (35 ms)` y conmuta automáticamente al ciclo útil nominal
+       (`target_pwm_duty`) sin detener el muestreo del encoder ni la parada de emergencia.
+     - **Señalizaciones luminosas no bloqueantes**:
+       Tanto los 3 destellos iniciales de arranque en `MASTER_INIT` (`init_blink_steps`),
+       como el parpadeo rápido de falta de ACK CAN (`Master_UpdateAckBlink()`, `40 ms`),
+       el destello de confirmación de calibración Home (`home_blink_active`, `120 ms`)
+       y los parpadeos de falla (`error_blink_tick` / `fault_blink_tick`) operan por
+       estados y marcas de tiempo sin bloquear el procesador en ningún instante.
 
 ================================================================================
 5. ESTRUCTURA SUGERIDA PARA QUE LA IA REDACTE EL INFORME

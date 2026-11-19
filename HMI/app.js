@@ -80,6 +80,7 @@ const DEFAULT_VAR_META = {
 const WRITE_TIMEOUT_MS = 2000;
 const CMD_TIMEOUT_MS = 3000;
 const STALE_MS = 2000;
+const MOTOR_STALL_MS = 1200;    // 1.2 s sin avance de encoder con movimiento activo -> Falla motor / L298N sin energía
 const HISTORY_MAX_MS = 125 * 1000;
 const HOMED_TOLERANCE_DEG = 8;  // Tolerancia de ±8° alrededor de 0° (contempla deslizamiento mecánico por inercia)
 
@@ -108,6 +109,10 @@ const app = {
   pendingCmd: null,             // { n, t, acked }
   lastCmdResult: null,          // { text, cls, t }
   stepDir: 1,                   // 1 = sentido positivo (+), -1 = sentido negativo (-)
+
+  motorStallFault: false,       // true si se comandó giro pero el encoder no avanza (L298N sin energía / motor desconectado)
+  motorStallReason: '',
+  stallWatch: { state: 0, startT: 0, lastMoveT: 0, refTicks: null, movedEver: false },
 
   recording: false,
   csvRows: [],
@@ -242,6 +247,8 @@ class DemoTransport {
     this.tick_n = 0;
     this.halted = false;
     this.canFault = false;
+    this.motorUnplugged = false;
+    this.stallTimer = 0;
 
     /* Variables de la placa A (como en main.c) */
     this.fw = {
@@ -296,6 +303,7 @@ class DemoTransport {
     this.onMessage({ type: 'target', state: h ? 'halted' : 'running' });
   }
   setCanFault(f) { this.canFault = f; }
+  setMotorUnplugged(u) { this.motorUnplugged = u; this.stallTimer = 0; }
   injectError() { this.slave.state = 4; }
   physicalButton(n) {
     if (this.halted) return;
@@ -334,6 +342,18 @@ class DemoTransport {
     const s = this.slave;
     const step = this.SPEED * dt;
     const amp = 2 * this.PPR;                     // barrido de ±2 vueltas
+    if (s.state === 1 || s.state === 3 || s.state === 5) {
+      if (this.motorUnplugged) {
+        this.stallTimer += dt;
+        if (this.stallTimer >= 1.2) {
+          s.state = 4;                            // Placa B pasa a STATE_ERROR_LIMIT (4) tras 1.2 s sin pulsos
+        }
+        return;
+      }
+      this.stallTimer = 0;
+    } else {
+      this.stallTimer = 0;
+    }
     if (s.state === 1) {
       s.rawPos += s.dir * step;
       if (s.rawPos >= amp) { s.rawPos = amp; s.dir = -1; }
@@ -481,9 +501,10 @@ function onTelemetry(msg) {
     app.canRate = dt > 0.3 ? ((c - first.c) >>> 0) / dt : null;
   }
 
-  /* Historial para el gráfico (no se agregan puntos mientras está en halt) */
+  /* Supervisión de respuesta física del motor (detección de L298N sin energía / motor desconectado) */
   if (app.target !== 'halted' && 'live_position' in v) {
-    const effSt = effectiveMotorState(v.live_motor_state, v.live_position);
+    updateMotorStallWatch(now, v);
+    const effSt = app.motorStallFault ? 4 : effectiveMotorState(v.live_motor_state, v.live_position);
     app.history.push({ t: now, pos: v.live_position, st: effSt });
     while (app.history.length && now - app.history[0].t > HISTORY_MAX_MS) app.history.shift();
   }
@@ -495,6 +516,59 @@ function onTelemetry(msg) {
       new Date().toISOString(), msg.t ?? '', app.target,
       v.live_position, v.live_position_ticks ?? '', v.live_motor_state, v.master_state ?? '', v.telemetry_counter, v.system_mode, v.remote_cmd,
     ]);
+  }
+}
+
+function updateMotorStallWatch(now, v) {
+  const st = v.live_motor_state;
+  const curTicks = v.live_position_ticks !== undefined
+    ? v.live_position_ticks
+    : Math.round((v.live_position * TICKS_PER_GEAR_REV) / 360);
+  const sw = app.stallWatch;
+
+  /* Si el motor está en un estado de movimiento activo: 1=SCANNING, 3=HOMING, 5=POSITIONING */
+  if (st === 1 || st === 3 || st === 5) {
+    if (sw.state !== st || sw.refTicks === null) {
+      sw.state = st;
+      sw.startT = now;
+      sw.lastMoveT = now;
+      sw.refTicks = curTicks;
+      sw.movedEver = false;
+    } else if (Math.abs(curTicks - sw.refTicks) >= 4) {
+      sw.refTicks = curTicks;
+      sw.lastMoveT = now;
+      sw.movedEver = true;
+      if (app.motorStallFault) {
+        app.motorStallFault = false;
+        app.motorStallReason = '';
+        log('✓ Movimiento del motor/encoder detectado nuevamente.', 'ok');
+      }
+    } else {
+      /* En SCANNING (1) existe una pausa normal de 1000 ms al invertir cada 2 vueltas.
+         Al arrancar el movimiento (!movedEver) exigimos respuesta en 1200 ms; si ya venía girando en SCANNING, damos 2300 ms. */
+      const timeoutMs = (st === 1 && sw.movedEver) ? 2300 : MOTOR_STALL_MS;
+      if (now - sw.lastMoveT >= timeoutMs && !app.motorStallFault) {
+        app.motorStallFault = true;
+        app.motorStallReason = `Se comandó ${stateInfo(st).label} pero el encoder no registra pulsos tras ${(timeoutMs / 1000).toFixed(1)} s. Verificá que el puente H L298N esté energizado y el motor/encoder conectados.`;
+        log('✗ Falla motor / Motor desconectado: sin respuesta del encoder (¿L298N sin energía o motor desconectado?).', 'err');
+      }
+    }
+  } else if (st === 4) {
+    /* Si Placa B reportó directamente STATE_ERROR_LIMIT (4) tras intentar moverse sin pulsos */
+    if (!app.motorStallFault && (sw.state === 1 || sw.state === 3 || sw.state === 5) && !sw.movedEver) {
+      app.motorStallFault = true;
+      app.motorStallReason = 'La Placa B detectó ausencia de giro (STATE_ERROR_LIMIT = 4 por L298N sin energía o motor/encoder desconectado).';
+      log('✗ Falla motor / Motor desconectado detectada por Placa B (L298N sin energía o sin pulsos en PA0/PA1).', 'err');
+    }
+    sw.state = 4;
+  } else {
+    /* En reposo (0=IDLE, 2=HOMED): si venía de estado 4 (ERROR) y se limpió con STOP/BTN4, limpiar alerta */
+    if (sw.state === 4 && app.motorStallFault) {
+      app.motorStallFault = false;
+      app.motorStallReason = '';
+    }
+    sw.state = st;
+    sw.refTicks = curTicks;
   }
 }
 
@@ -556,6 +630,16 @@ function sendCommand(n) {
     return;
   }
   if (writeVar('remote_cmd', n)) {
+    if (n === 4 || n === 2) {
+      app.motorStallFault = false;
+      app.motorStallReason = '';
+    } else if (n === 1 || n === 3 || (n >= 5 && n <= 12)) {
+      /* Reiniciar ventana de vigilancia al enviar un nuevo comando de movimiento */
+      app.motorStallFault = false;
+      app.stallWatch.startT = performance.now();
+      app.stallWatch.lastMoveT = performance.now();
+      app.stallWatch.movedEver = false;
+    }
     app.pendingCmd = { n, t: performance.now(), acked: false };
     app.lastCmdResult = null;
   }
@@ -611,6 +695,9 @@ function resetRuntime() {
   app.counterSamples = [];
   app.canRate = null;
   app.lastCounter = null;
+  app.motorStallFault = false;
+  app.motorStallReason = '';
+  app.stallWatch = { state: 0, startT: 0, lastMoveT: 0, refTicks: null, movedEver: false };
 }
 
 function connect() {
@@ -686,9 +773,17 @@ function render() {
   const isStudy = settings.source === 'fsm' || settings.source === 'matrix';
 
   /* --- Banners --- */
+  const motorFaultActive = connected && !halted && (app.motorStallFault || v.live_motor_state === 4);
   $('halt-banner').classList.toggle('hidden', isStudy || !(connected && halted));
   $('can-banner').classList.toggle('hidden', isStudy || !canDead);
   $('stale-banner').classList.toggle('hidden', isStudy || !stale);
+  if ($('motor-banner')) {
+    $('motor-banner').classList.toggle('hidden', isStudy || !motorFaultActive);
+    if (motorFaultActive && $('motor-fault-text')) {
+      $('motor-fault-text').textContent = app.motorStallReason ||
+        'La Placa B reportó falla en el motor (STATE_ERROR_LIMIT = 4). Verificá que el L298N esté energizado y el motor/encoder conectados (pulsá STOP para limpiar).';
+    }
+  }
 
   /* --- KPI: posición --- */
   if (hasData) {
@@ -714,11 +809,17 @@ function render() {
   /* --- KPI: estado motor --- */
   const badge = $('kpi-state');
   if (hasData) {
-    const effSt = effectiveMotorState(v.live_motor_state, v.live_position);
-    const si = stateInfo(effSt);
-    badge.textContent = si.label;
-    badge.className = 'state-badge ' + si.cls;
-    $('kpi-state-desc').textContent = `${si.desc} (${effSt})`;
+    if (app.motorStallFault) {
+      badge.textContent = 'FALLA MOTOR';
+      badge.className = 'state-badge st-error';
+      $('kpi-state-desc').textContent = 'Motor desconectado / L298N sin energía';
+    } else {
+      const effSt = effectiveMotorState(v.live_motor_state, v.live_position);
+      const si = stateInfo(effSt);
+      badge.textContent = si.label;
+      badge.className = 'state-badge ' + si.cls;
+      $('kpi-state-desc').textContent = `${si.desc} (${effSt})`;
+    }
   } else {
     badge.textContent = '—';
     badge.className = 'state-badge';
@@ -732,9 +833,11 @@ function render() {
     modeEl.textContent = modeName(v.system_mode);
     modeEl.className = 'kpi-value ' + (v.system_mode === MODE.REMOTE ? 'mode-remote' : 'mode-local');
     if (mstBadge) {
-      const mVal = v.master_state !== undefined
-        ? v.master_state
-        : (canDead ? 3 : v.live_motor_state === 4 ? 4 : v.system_mode === MODE.REMOTE ? 2 : 1);
+      const mVal = app.motorStallFault
+        ? 4
+        : v.master_state !== undefined
+          ? v.master_state
+          : (canDead ? 3 : v.live_motor_state === 4 ? 4 : v.system_mode === MODE.REMOTE ? 2 : 1);
       const mi = masterStateInfo(mVal);
       mstBadge.textContent = `FSM: ${mi.label} (${mVal})`;
       mstBadge.className = 'mst-badge mono' + (mi.cls ? ' ' + mi.cls : '');
@@ -1024,91 +1127,91 @@ function downloadCSV() {
 const FSM_SLAVE_DETAILS = [
   {
     id: 0, code: 'STATE_IDLE', cls: 'is-muted', badge: 'b-muted',
-    short: 'Detenido fuera de Home (> ±8°)',
-    entry: ['Motor_SetSpeed(0) (freno activo)', 'LED PC13 apagado (GPIO_PIN_SET)', 'Ocurre tras STOP o giro relativo fuera de ±56 ticks de Home'],
+    short: 'Detenido fuera de Home (> ±8° / ±56 ticks)',
+    entry: ['Motor_SetSpeed(0) (freno activo, kick_active = 0)', 'LED PC13 apagado (GPIO_PIN_SET)', 'Paso de FSM evaluado cada 5 ms sin bloqueo (last_fsm_tick)'],
     accepts: ['BTN1 (0x01) → STATE_SCANNING', 'BTN2 (0x02) → Calibrar Home (STATE_HOMED)', 'BTN3 (0x03) → Ir a Home (STATE_HOMING)', 'Giros 0x05..0x0C → STATE_POSITIONING'],
-    faults: ['Sin movimiento: no dispara límites ni timeouts'],
-    exit: ['Cualquier comando de movimiento o calibración'],
+    faults: ['Sin movimiento activo: no dispara límites ni detector de atasco'],
+    exit: ['Cualquier comando de movimiento, calibración o si el eje entra en ±56 ticks (pasa a STATE_HOMED)'],
   },
   {
     id: 1, code: 'STATE_SCANNING', cls: 'is-info', badge: 'b-info',
-    short: 'Barrido oscilante ±2 vueltas (±5040 ticks)',
-    entry: ['Guarda leg_start_ticks = total_encoder_ticks', 'Inicia fase SCAN_PHASE_FORWARD con PWM = 700', 'LED PC13 encendido fijo'],
-    accepts: ['BTN2 → Calibrar Home aquí', 'BTN3 → Ir a Home', 'BTN4 → STOP inmediato', 'Giros 0x05..0x0C → STATE_POSITIONING'],
-    faults: ['Límite mecánico ≥ 25000 ticks → STATE_ERROR_LIMIT (4)', '⚠ NO tiene timeout: si se desconecta Enc A o falta Vmotor, queda esperando sin error'],
-    exit: ['BTN4 (STOP), BTN2, BTN3, paso angular o falla de límite'],
+    short: 'Barrido oscilante ±2 vueltas (±5040 ticks) · 100% No Bloqueante',
+    entry: ['Guarda leg_start_ticks = total_encoder_ticks y stall_ref_ticks = total_encoder_ticks', 'Inicia stall_timer_tick = HAL_GetTick() y fase SCAN_PHASE_FORWARD (PWM = 700)', 'Aplica Kick-Start no bloqueante de 35 ms (KICK_DUTY = 950 via Motor_ServiceKickStart())', 'LED PC13 encendido fijo'],
+    accepts: ['BTN2 → Calibrar Home aquí', 'BTN3 → Ir a Home', 'BTN4 → STOP inmediato (prioridad global)', 'Giros 0x05..0x0C → STATE_POSITIONING'],
+    faults: ['Falla motor / L298N sin energía: |Δticks| < 4 durante ≥ 1200 ms (MOTOR_STALL_TIMEOUT_MS) con motor activo → STATE_ERROR_LIMIT (4)', 'Límite mecánico ≥ 25000 ticks → STATE_ERROR_LIMIT (4)'],
+    exit: ['BTN4 (STOP), BTN2, BTN3, paso angular o disparo de falla (límite / motor desconectado)'],
   },
   {
     id: 2, code: 'STATE_HOMED', cls: 'is-ok', badge: 'b-ok',
     short: 'Detenido dentro de zona Home (±8° / ±56 ticks)',
-    entry: ['Motor_SetSpeed(0) (freno activo)', 'LED PC13 apagado', 'Estado inicial al encender o tras Slave_CalibrateHome()'],
-    accepts: ['BTN1 → Barrido', 'BTN2 → Recalibrar cero aquí', 'BTN3 → Reafirmar Home', 'Giros 0x05..0x0C → STATE_POSITIONING'],
+    entry: ['Motor_SetSpeed(0) (freno activo)', 'Al calibrar (Slave_CalibrateHome): destello no bloqueante de 120 ms en PC13 (home_blink_active = 1)', 'Contempla el deslizamiento mecánico por inercia del rotor (±8°)'],
+    accepts: ['BTN1 → Barrido (STATE_SCANNING)', 'BTN2 → Recalibrar cero aquí', 'BTN3 → Reafirmar Home', 'Giros 0x05..0x0C → STATE_POSITIONING'],
     faults: ['En reposo no hay fallas activas'],
-    exit: ['BTN1 o cualquier comando de giro relativo'],
+    exit: ['BTN1, giro relativo o si se mueve el eje fuera de ±56 ticks (pasa a STATE_IDLE)'],
   },
   {
     id: 3, code: 'STATE_HOMING', cls: 'is-warn', badge: 'b-warn',
     short: 'Retornando activamente a 0° (home_position)',
-    entry: ['target_position = home_position', 'Inicia go_home_start_time = HAL_GetTick()', 'LED PC13 encendido fijo'],
+    entry: ['target_position = home_position', 'Inicia go_home_start_time = HAL_GetTick() y stall_timer_tick = HAL_GetTick()', 'Kick-Start no bloqueante de 35 ms (950 PWM) y LED PC13 encendido'],
     accepts: ['BTN2 → Calibrar cero en el acto', 'BTN4 → STOP inmediato', 'Giros 0x05..0x0C → cambia a STATE_POSITIONING'],
-    faults: ['Timeout > 30000 ms sin llegar a ±5 ticks → STATE_ERROR_LIMIT (4)', 'Límite ≥ 25000 ticks → STATE_ERROR_LIMIT (4)', 'Error crece > +30 ticks → auto-invierte motor_dir_sign'],
-    exit: ['Llegada a |error| ≤ 5 ticks → STATE_HOMED'],
+    faults: ['Falla motor / L298N sin energía: |Δticks| < 4 durante ≥ 1200 ms → STATE_ERROR_LIMIT (4)', 'Timeout global > 30000 ms sin llegar a ±5 ticks → STATE_ERROR_LIMIT (4)', 'Límite ≥ 25000 ticks → STATE_ERROR_LIMIT (4)', 'Error crece > +30 ticks → auto-invierte motor_dir_sign'],
+    exit: ['Llegada a |error| ≤ 5 ticks → Slave_TransitionToRest() → STATE_HOMED (2)'],
   },
   {
     id: 4, code: 'STATE_ERROR_LIMIT', cls: 'is-err', badge: 'b-err',
-    short: 'Falla crítica: límite ≥ 25000 ticks o timeout > 30 s',
-    entry: ['Motor_SetSpeed(0) (freno inmediato)', 'LED PC13 parpadea rápido cada 100 ms', 'Reporta estado = 4 en CAN 0x030 (Maestro pasa a MASTER_SLAVE_ERROR)'],
-    accepts: ['BTN2 (0x02) → Recalibrar Home y salir a STATE_HOMED', 'BTN1 (0x01) → Limpiar falla y pasar a reposo', 'BTN4 (0x04) → Freno y pasar a reposo'],
-    faults: ['Bloquea BTN3 y todos los giros relativos hasta limpiar la falla'],
-    exit: ['Solo mediante BTN1, BTN2 o BTN4'],
+    short: 'Falla crítica: motor desconectado / L298N sin energía (1,2 s), límite ≥ 25000 o timeout > 30 s',
+    entry: ['Motor_SetSpeed(0) (corta PWM y frena inmediato)', 'LED PC13 parpadea cada 100 ms sin bloqueo (error_blink_tick)', 'Reporta estado = 4 en CAN 0x030 → Placa A pasa a MASTER_SLAVE_ERROR y HMI muestra FALLA MOTOR'],
+    accepts: ['BTN4 (0x04, prioridad global) → Frena y sale a STATE_HOMED / STATE_IDLE', 'BTN2 (0x02) → Recalibra Home (0°) y sale a STATE_HOMED', 'BTN1 (0x01) → Limpia falla y pasa a reposo'],
+    faults: ['Bloquea BTN3 y todos los giros relativos (5..12) hasta limpiar la falla'],
+    exit: ['Mediante BTN4 (STOP), BTN2 (Fijar Home) o BTN1'],
   },
   {
     id: 5, code: 'STATE_POSITIONING', cls: 'is-cyan', badge: 'b-cyan',
-    short: 'Posicionamiento relativo (±30°/90°/180°/360°)',
-    entry: ['target_position = total_encoder_ticks + step_req', 'Comparte Slave_RunPositionControl() con STATE_HOMING', 'LED PC13 encendido fijo'],
-    accepts: ['Nuevos giros 0x05..0x0C acumulan sobre target_position', 'BTN2 → Fija cero aquí', 'BTN3 → Redirige a STATE_HOMING', 'BTN4 → STOP'],
-    faults: ['Timeout > 30000 ms → STATE_ERROR_LIMIT (4)', 'Límite ≥ 25000 ticks → STATE_ERROR_LIMIT (4)', 'Error crece > +30 ticks → auto-invierte motor_dir_sign'],
-    exit: ['Llegada a |error| ≤ 5 ticks → STATE_HOMED o STATE_IDLE'],
+    short: 'Posicionamiento angular relativo (±30°/90°/180°/360°)',
+    entry: ['target_position = total_encoder_ticks + step_req', 'Inicializa stall_ref_ticks y stall_timer_tick = HAL_GetTick()', 'Comparte Slave_RunPositionControl() y Kick-Start no bloqueante con STATE_HOMING'],
+    accepts: ['Nuevos giros 0x05..0x0C acumulan sobre target_position y reinician stall_timer_tick', 'BTN2 → Fija cero aquí', 'BTN3 → Redirige a STATE_HOMING', 'BTN4 → STOP'],
+    faults: ['Falla motor / L298N sin energía: |Δticks| < 4 durante ≥ 1200 ms → STATE_ERROR_LIMIT (4)', 'Timeout global > 30000 ms → STATE_ERROR_LIMIT (4)', 'Límite ≥ 25000 ticks → STATE_ERROR_LIMIT (4)', 'Error crece > +30 ticks → auto-invierte motor_dir_sign'],
+    exit: ['Llegada a |error| ≤ 5 ticks → STATE_HOMED (si quedó en ±8°) o STATE_IDLE'],
   },
 ];
 
 const FSM_MASTER_DETAILS = [
   {
     id: 0, code: 'MASTER_INIT', cls: 'is-muted', badge: 'b-muted',
-    short: 'Inicialización de GPIO, CAN y espera de enlace',
-    entry: ['3 parpadeos iniciales de 100 ms en PC13', 'Inicia CAN1 + filtro + interrupción FIFO0'],
-    accepts: ['Transiciona en el primer ciclo del while(1)'],
-    faults: ['Si falla HAL_CAN_Start o filtro → Error_Handler() (bloqueo total)'],
-    exit: ['Pasa automáticamente a MASTER_LOCAL o MASTER_REMOTE según system_mode'],
+    short: 'Inicialización y secuencia de 3 destellos (100 ms c/u) 100% no bloqueante',
+    entry: ['Inicia CAN1 + filtro + interrupción FIFO0', 'Activa init_blink_steps = 5 e init_blink_tick = HAL_GetTick() (cero HAL_Delay)'],
+    accepts: ['Procesa tramas CAN 0x030 entrantes en tiempo real mientras parpadea PC13 cada 100 ms'],
+    faults: ['Si falla HAL_CAN_Start o filtro en el boot → Error_Handler()'],
+    exit: ['Al completar los 3 parpadeos no bloqueantes (600 ms), pasa a MASTER_LOCAL o MASTER_REMOTE'],
   },
   {
     id: 1, code: 'MASTER_LOCAL', cls: 'is-ok', badge: 'b-ok',
-    short: 'Operación normal con pulsadores físicos BTN1..BTN4',
+    short: 'Operación normal con pulsadores físicos BTN1..BTN4 (planificador 5 ms)',
     entry: ['current_led_state = 0', 'PC13 apagado (refleja PB0=0 en Placa B)'],
     accepts: ['BTN1..BTN4 físicos envían CAN 0x010', 'BTN6 / system_mode=1 cambia a MASTER_REMOTE', 'Descarta remote_cmd desde PC/HMI'],
-    faults: ['Sin trama 0x030 > 500 ms → MASTER_CAN_FAULT (3)', 'live_motor_state == 4 → MASTER_SLAVE_ERROR (4)'],
+    faults: ['Sin trama 0x030 > 500 ms → MASTER_CAN_FAULT (3)', 'live_motor_state == 4 → MASTER_SLAVE_ERROR (4)', 'Falta de ACK CAN → destello no bloqueante de 4 pasos (40 ms) vía Master_UpdateAckBlink()'],
     exit: ['Cambio a Remoto o disparo de falla CAN / Esclavo'],
   },
   {
     id: 2, code: 'MASTER_REMOTE', cls: 'is-info', badge: 'b-info',
-    short: 'Control desde PC / HMI (remote_cmd 1..12) + BTN4 físico',
+    short: 'Control desde PC / HMI (remote_cmd 1..12) + BTN4 físico (planificador 5 ms)',
     entry: ['current_led_state = 1', 'PC13 encendido fijo (refleja PB0=1 en Placa B)'],
     accepts: ['remote_cmd (1..12) enviado por ST-Link/HMI', 'BTN4 físico siempre activo por seguridad de banco', 'BTN5 / system_mode=0 vuelve a MASTER_LOCAL'],
-    faults: ['Sin trama 0x030 > 500 ms → MASTER_CAN_FAULT (3)', 'live_motor_state == 4 → MASTER_SLAVE_ERROR (4)'],
+    faults: ['Sin trama 0x030 > 500 ms → MASTER_CAN_FAULT (3)', 'live_motor_state == 4 → MASTER_SLAVE_ERROR (4)', 'Falta de ACK CAN → destello no bloqueante vía Master_UpdateAckBlink()'],
     exit: ['Cambio a Local o disparo de falla CAN / Esclavo'],
   },
   {
     id: 3, code: 'MASTER_CAN_FAULT', cls: 'is-err', badge: 'b-err',
     short: 'Pérdida de enlace CAN (> 500 ms sin telemetría 0x030)',
-    entry: ['Descarta cualquier remote_cmd pendiente', 'Inicia parpadeo rápido de PC13 cada 120 ms'],
-    accepts: ['Solo supervisa llegada de nuevas tramas 0x030', 'Tiene mayor prioridad que MASTER_SLAVE_ERROR'],
-    faults: ['Bloquea operación hasta recuperar la comunicación CAN'],
-    exit: ['Recuperación automática apenas vuelve 0x030 (≤ 500 ms); reenvía 0x020'],
+    entry: ['Descarta cualquier remote_cmd pendiente', 'Inicia parpadeo rápido no bloqueante de PC13 cada 120 ms (fault_blink_tick)'],
+    accepts: ['Supervisa llegada de nuevas tramas 0x030 en tiempo real', 'Tiene mayor prioridad que MASTER_SLAVE_ERROR'],
+    faults: ['Bloquea envío de comandos de movimiento hasta recuperar el bus CAN'],
+    exit: ['Recuperación automática apenas vuelve 0x030 (≤ 500 ms); reenvía LED 0x020'],
   },
   {
     id: 4, code: 'MASTER_SLAVE_ERROR', cls: 'is-warn', badge: 'b-warn',
-    short: 'Placa B reportó STATE_ERROR_LIMIT (live_motor_state == 4)',
-    entry: ['Inicia parpadeo de advertencia en PC13 cada 250 ms'],
+    short: 'Placa B en falla (live_motor_state == 4: motor desconectado / límite / timeout)',
+    entry: ['Inicia parpadeo no bloqueante de advertencia en PC13 cada 250 ms'],
     accepts: ['Solo deja pasar comandos de desbloqueo: BTN1 (1), BTN2 (2) y BTN4 (4)', 'Descarta BTN3 (3) y giros (5..12)'],
     faults: ['Si además cae el bus CAN > 500 ms → escala a MASTER_CAN_FAULT (3)'],
     exit: ['Automático cuando Placa B vuelve a reportar live_motor_state != 4'],
@@ -1116,20 +1219,23 @@ const FSM_MASTER_DETAILS = [
 ];
 
 const ERROR_MATRIX_ROWS = [
-  { sub: 'slave', name: 'STATE_ERROR_LIMIT (4) por Límite Mecánico', cause: 'abs(total_encoder_ticks - home_position) >= 25000 ticks durante movimiento.', effect: 'Motor_SetSpeed(0) inmediato; bloquea nuevos giros hasta limpiar falla.', led: 'B: PC13 parpadea cada 100 ms · HMI: ERROR (4)', rec: 'Enviar BTN2 (Set Home) o BTN1/BTN4.' },
-  { sub: 'slave', name: 'STATE_ERROR_LIMIT (4) por Timeout de Posición', cause: '(HAL_GetTick() - go_home_start_time) > 30000 ms en HOMING o POSITIONING sin entrar en ±5 ticks.', effect: 'Frena el motor y corta el intento de posicionamiento.', led: 'B: PC13 parpadea cada 100 ms · HMI: ERROR (4)', rec: 'Revisar traba/energía/encoder y pulsar BTN2, BTN1 o BTN4.' },
-  { sub: 'slave', name: 'Auto-corrección Anti-embalamiento (Anomalía)', cause: 'abs_err > go_home_initial_error + 30 ticks en Slave_RunPositionControl().', effect: 'Invierte motor_dir_sign (+1 ↔ -1) automáticamente para evitar que el error siga creciendo.', led: 'Sin alerta visual (se corrige en vuelo).', rec: 'Automática en el ciclo siguiente.' },
-  { sub: 'slave', name: 'Error_Handler() en Placa B', cause: 'Falla de inicialización HAL (SystemClock, TIM2, TIM3, CAN_Start, CAN_Filter).', effect: '__disable_irq() y bucle infinito while(1); placa congelada.', led: 'Sin parpadeo; deja de emitir CAN 0x030 (A ve CAN_FAULT).', rec: 'Reinicio físico (Reset / ciclo de alimentación).' },
-  { sub: 'master', name: 'MASTER_CAN_FAULT (3)', cause: '> 500 ms sin recibir tramas CAN 0x030 desde Placa B (CAN_TELEMETRY_TIMEOUT_MS).', effect: 'Descarta comandos remotos; prioridad superior a MASTER_SLAVE_ERROR.', led: 'A: PC13 parpadea rápido cada 120 ms · HMI: CAN_FAULT (3)', rec: 'Automática al reaparecer 0x030; reenvía 0x020.' },
-  { sub: 'master', name: 'MASTER_SLAVE_ERROR (4)', cause: 'Trama CAN 0x030 trae live_motor_state == 4.', effect: 'Solo permite comandos 1 (BTN1), 2 (BTN2) y 4 (STOP); descarta el resto.', led: 'A: PC13 parpadea cada 250 ms · HMI: SLAVE_ERROR (4)', rec: 'Automática cuando Placa B sale de estado 4.' },
-  { sub: 'master', name: 'Fallo de ACK en Transmisión CAN', cause: 'CAN_SendMessage() falla al encolar o no recibe ACK en 25 ms.', effect: 'Aborta el buzón TX pendiente y devuelve 0.', led: 'A: Indicate_CAN_Result(0) parpadea PC13 4 veces cada 40 ms.', rec: 'Se restablece tras la ráfaga; reintentar comando.' },
+  { sub: 'slave', name: 'STATE_ERROR_LIMIT (4) por Motor Desconectado / L298N sin Energía', cause: 'current_motor_dir != 0 (PWM activo en SCANNING, HOMING o POSITIONING) pero |total_encoder_ticks - stall_ref_ticks| < 4 durante ≥ 1200 ms (MOTOR_STALL_TIMEOUT_MS).', effect: 'Motor_SetSpeed(0) inmediato para proteger etapa de potencia; pasa a STATE_ERROR_LIMIT (4) y notifica por CAN 0x030.', led: 'B: PC13 parpadea 100 ms · A: SLAVE_ERROR (4) · HMI: Banner rojo + FALLA MOTOR', rec: 'Energizar el L298N / conectar motor y presionar STOP (BTN4) o Fijar Home (BTN2).' },
+  { sub: 'slave', name: 'STATE_ERROR_LIMIT (4) por Límite Mecánico', cause: 'abs(total_encoder_ticks - home_position) >= 25000 ticks durante movimiento.', effect: 'Motor_SetSpeed(0) inmediato; bloquea nuevos giros hasta limpiar falla.', led: 'B: PC13 parpadea cada 100 ms · HMI: ERROR (4)', rec: 'Enviar STOP (BTN4), Fijar Home (BTN2) o BTN1.' },
+  { sub: 'slave', name: 'STATE_ERROR_LIMIT (4) por Timeout de Posición', cause: '(HAL_GetTick() - go_home_start_time) > 30000 ms en HOMING o POSITIONING sin entrar en ±5 ticks.', effect: 'Frena el motor y corta el intento de posicionamiento.', led: 'B: PC13 parpadea cada 100 ms · HMI: ERROR (4)', rec: 'Revisar traba mecánica y pulsar STOP (BTN4) o Fijar Home (BTN2).' },
+  { sub: 'slave', name: 'Auto-corrección Anti-embalamiento (Anomalía)', cause: 'abs_err > go_home_initial_error + 30 ticks en Slave_RunPositionControl().', effect: 'Invierte motor_dir_sign (+1 ↔ -1) automáticamente en vuelo.', led: 'Sin alerta de bloqueo (se corrige automáticamente).', rec: 'Automática en el ciclo de 5 ms siguiente.' },
+  { sub: 'slave', name: 'Kick-Start No Bloqueante (35 ms)', cause: 'Arranque desde reposo o inversión de sentido con target_pwm_duty < 950.', effect: 'Aplica KICK_DUTY (950) y activa kick_active = 1; Motor_ServiceKickStart() baja al PWM nominal tras 35 ms sin usar HAL_Delay.', led: 'Operación normal sin congelar encoder ni CAN.', rec: 'Automática a los 35 ms.' },
+  { sub: 'slave', name: 'Error_Handler() en Placa B', cause: 'Falla de inicialización HAL (SystemClock, TIM2, TIM3, CAN_Start, CAN_Filter).', effect: '__disable_irq() y bucle infinito while(1); placa congelada.', led: 'Sin parpadeo; deja de emitir CAN 0x030 (A entra en CAN_FAULT).', rec: 'Reinicio físico (Reset / ciclo de alimentación).' },
+  { sub: 'master', name: 'MASTER_CAN_FAULT (3)', cause: '> 500 ms sin recibir tramas CAN 0x030 desde Placa B (CAN_TELEMETRY_TIMEOUT_MS).', effect: 'Descarta comandos remotos; prioridad superior a MASTER_SLAVE_ERROR.', led: 'A: PC13 parpadea rápido cada 120 ms (no bloqueante) · HMI: CAN_FAULT (3)', rec: 'Automática al reaparecer 0x030; reenvía estado de LED 0x020.' },
+  { sub: 'master', name: 'MASTER_SLAVE_ERROR (4)', cause: 'Trama CAN 0x030 trae live_motor_state == 4 (falla de motor/límite/timeout en B).', effect: 'Solo permite comandos 1 (BTN1), 2 (BTN2) y 4 (STOP); descarta giros.', led: 'A: PC13 parpadea cada 250 ms (no bloqueante) · HMI: SLAVE_ERROR (4)', rec: 'Automática cuando Placa B sale del estado 4.' },
+  { sub: 'master', name: 'Fallo de ACK en Transmisión CAN (No Bloqueante)', cause: 'CAN_SendMessage() falla al encolar o no recibe ACK en 25 ms.', effect: 'Aborta el buzón TX pendiente y activa ack_blink_steps = 4.', led: 'A: Master_UpdateAckBlink() conmuta PC13 cada 40 ms sin bloquear la CPU.', rec: 'Se restablece solo tras los 4 destellos; reintentar comando.' },
   { sub: 'master', name: 'Error_Handler() en Placa A', cause: 'Falla de inicialización HAL (CAN_Filter, HAL_CAN_Start, Notification, Clock).', effect: '__disable_irq() y bucle infinito while(1).', led: 'Placa congelada; puente Python deja de ver cambios.', rec: 'Reinicio físico (Reset).' },
-  { sub: 'hmi', name: 'Banner CAN SIN DATOS (canDead)', cause: 'CPU corriendo, WS fresco, pero telemetry_counter sin cambios > canTimeoutMs (1000 ms por defecto).', effect: 'Pone pill CAN en rojo (SIN DATOS) y muestra banner de alerta.', led: 'HMI: Banner rojo de pérdida de telemetría CAN.', rec: 'Desaparece apenas vuelve a incrementar telemetry_counter.' },
-  { sub: 'hmi', name: 'CPU en Pausa (HALTED)', cause: 'El depurador ST-Link / OpenOCD pausó el Cortex-M3 (target == halted).', effect: 'Variables congeladas; comandos escritos en RAM quedan pendientes sin ejecutarse.', led: 'HMI: Pill violeta HALTED y banner de CPU en pausa.', rec: 'Reanudar ejecución (Resume / F8) desde CubeIDE o puente.' },
+  { sub: 'hmi', name: 'Falla de Motor / Motor Desconectado (updateMotorStallWatch)', cause: 'Estado en movimiento (1, 3 o 5) sin avance de encoder (|Δticks| < 4) tras 1200 ms, o Placa B entra en estado 4 sin haber girado.', effect: 'Muestra banner rojo #motor-banner, cambia badge a FALLA MOTOR y registra error en el log.', led: 'HMI: Banner rojo "Falla de motor / Motor desconectado" + badge FALLA MOTOR.', rec: 'Se limpia al detectar giro nuevamente o al pulsar STOP (4) / Fijar Home (2).' },
+  { sub: 'hmi', name: 'Banner CAN SIN DATOS (canDead)', cause: 'CPU corriendo, WS fresco, pero telemetry_counter sin cambios > canTimeoutMs (1000 ms).', effect: 'Pone pill CAN en rojo (SIN DATOS) y muestra banner de alerta.', led: 'HMI: Banner amarillo/rojo de pérdida de telemetría CAN.', rec: 'Desaparece apenas vuelve a incrementar telemetry_counter.' },
+  { sub: 'hmi', name: 'CPU en Pausa (HALTED)', cause: 'El depurador ST-Link / OpenOCD pausó el Cortex-M3 (target == halted).', effect: 'Variables congeladas; comandos escritos en RAM quedan pendientes sin ejecutarse.', led: 'HMI: Pill violeta HALTED y banner de CPU en pausa.', rec: 'Reanudar ejecución (Resume / F8) desde CubeIDE.' },
   { sub: 'hmi', name: 'Datos Viejos / Enlace Caído (STALE)', cause: '> 2000 ms (STALE_MS) sin mensajes desde bridge.py por WebSocket.', effect: 'Pill de puente pasa a amarillo y alerta desconexión.', led: 'HMI: Banner de enlace estancado.', rec: 'Reconecta automáticamente cada 2 s o reiniciar bridge.py.' },
   { sub: 'hmi', name: 'CMD_TIMEOUT / WRITE_TIMEOUT', cause: 'remote_cmd != 0 tras 3000 ms o falta ACK del puente en 2000 ms.', effect: 'Libera el botón pendiente y registra error rojo en la consola HMI.', led: 'HMI: Log rojo "no fue procesado por el firmware (timeout)".', rec: 'Verificar modo REMOTE y estado RUNNING del micro.' },
-  { sub: 'hw', name: 'Canal A (PA0) desconectado / Sin Vmotor', cause: 'No llegan flancos a TIM2_CH1 (modo TI1): delta = 0 aunque haya PWM.', effect: 'En HOMING/POSITIONING dispara Error 4 a los 30 s. En SCANNING NO dispara falla (queda esperando 5040 ticks).', led: 'En SCANNING no da alerta. En POS/HOMING da Error 4 tras 30 s.', rec: 'Reconectar señal/energía; usar BTN4 (STOP) si quedó en barrido.' },
-  { sub: 'hw', name: 'Canal B (PA1) desconectado', cause: 'TIM2_CH2 queda flotante (GPIO_NOPULL); cuenta flancos de A sin referencia de fase B.', effect: 'Conteo con sentido errático o fijo; puede disparar anti-inversión, freno falso, Error 4 por límite/timeout o seguir sin alerta en barrido.', led: 'Variable según comportamiento del pin flotante.', rec: 'Reconectar Canal B en PA1 y recalibrar Home (BTN2).' },
+  { sub: 'hw', name: 'Inercia Mecánica del Rotor al Frenar (±8°)', cause: 'Al cortar PWM (Motor_SetSpeed(0)), el rotor gira ~35–40 ticks (~5°–6°) por inercia antes de detenerse.', effect: 'Contemplado en HOMED_TOLERANCE_TICKS (±56 ticks) y HOMED_TOLERANCE_DEG (±8°) para mantener el estado HOMED (2).', led: 'HMI: Franja verde de ±8° en el gráfico y badge HOMED (2).', rec: 'Comportamiento físico normal contemplado por diseño.' },
+  { sub: 'hw', name: 'Canal B del Encoder (PA1) desconectado', cause: 'TIM2_CH2 queda flotante (GPIO_NOPULL); cuenta flancos de A sin referencia de fase B.', effect: 'Conteo con sentido único; en HOMING/POSITIONING dispara la auto-corrección anti-embalamiento (motor_dir_sign) o límite.', led: 'Si invierte error > +30 ticks, actúa el anti-embalamiento.', rec: 'Reconectar Canal B en PA1 y recalibrar Home (BTN2).' },
 ];
 
 function showFSMDetail(st, prefix) {
@@ -1338,6 +1444,13 @@ function bindUI() {
     $('btn-sim-canfault').textContent = s.canFault ? '⚡ Restaurar bus CAN' : '⚡ Cortar bus CAN';
     $('btn-sim-canfault').classList.toggle('active', s.canFault);
     log(s.canFault ? '[sim] Bus CAN cortado.' : '[sim] Bus CAN restaurado.', 'warn');
+  });
+  $('btn-sim-unplug')?.addEventListener('click', () => {
+    const s = sim(); if (!s) return;
+    s.setMotorUnplugged(!s.motorUnplugged);
+    $('btn-sim-unplug').textContent = s.motorUnplugged ? '🔌 Reconectar L298N / Motor' : '🔌 Desconectar L298N / Motor';
+    $('btn-sim-unplug').classList.toggle('active', s.motorUnplugged);
+    log(s.motorUnplugged ? '[sim] L298N desenergizado / Motor desconectado.' : '[sim] L298N / Motor reconectado.', 'warn');
   });
   $('btn-sim-error').addEventListener('click', () => { sim()?.injectError(); log('[sim] ERROR inyectado en placa B.', 'warn'); });
   $('btn-sim-btn5').addEventListener('click', () => { sim()?.physicalButton(5); log('[sim] BTN5 físico presionado.'); });
