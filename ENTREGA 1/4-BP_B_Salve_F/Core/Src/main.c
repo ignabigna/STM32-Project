@@ -30,7 +30,7 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 typedef enum {
-  STATE_IDLE        = 0,  /* Detenido fuera de la zona Home (|pos| > +-5 grados) */
+  STATE_IDLE        = 0,  /* Detenido fuera de la zona Home (|pos| > +-8 grados) */
   STATE_SCANNING    = 1,  /* Barrido oscilante de +-2 vueltas */
   STATE_HOMED       = 2,  /* Detenido dentro de la zona Home (+-8 grados / +-56 ticks) */
   STATE_HOMING      = 3,  /* Retornando activamente al origen Home (0 grados) */
@@ -41,23 +41,23 @@ typedef enum {
 typedef enum {
   SCAN_PHASE_FORWARD = 0,   /* Girando hacia adelante (+2 vueltas) */
   SCAN_PHASE_PAUSE_FWD,     /* Pausa de 1s con motor frenado */
-  SCAN_PHASE_REVERSE,       /* Girando hacia atrás (-2 vueltas) */
+  SCAN_PHASE_REVERSE,       /* Girando hacia atras (-2 vueltas) */
   SCAN_PHASE_PAUSE_REV      /* Pausa de 1s con motor frenado */
 } ScanPhase_t;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-/* --- PARÁMETROS DEL ENCODER, TORNILLO SIN FIN Y ENGRANAJE --- */
-#define ENCODER_PPR            30     /* Pulsos por revolución del eje del motor */
+/* --- PARAMETROS DEL ENCODER, TORNILLO SIN FIN Y ENGRANAJE --- */
+#define ENCODER_PPR            30     /* Pulsos por revolucion del eje del motor */
 /* En modo TI1 (x2) se generan 2 cuentas en el timer por cada pulso */
 #define TICKS_PER_MOTOR_REV    (ENCODER_PPR * 2) /* 60 cuentas por 1 vuelta del motor */
 
-/* Transmisión: Tornillo sin fin (1 entrada) -> Engranaje de 42 dientes (Radio = 15 mm)
- * 1 vuelta del tornillo sin fin avanza 1 diente del engranaje (relación 42:1).
+/* Transmision: Tornillo sin fin (1 entrada) -> Engranaje de 42 dientes (Radio = 15 mm)
+ * 1 vuelta del tornillo sin fin avanza 1 diente del engranaje (relacion 42:1).
  * Por lo tanto, 1 vuelta del engranaje = 42 vueltas del motor = 2520 ticks. */
 #define WORM_STARTS            1      /* Entradas del tornillo sin fin */
-#define GEAR_TEETH             42     /* Dientes del engranaje conducido (contados fisicamente: 42, no 40) */
+#define GEAR_TEETH             42     /* Dientes del engranaje conducido */
 #define GEAR_RADIUS_MM         15     /* Radio del engranaje (centro a cabeza de diente): 15 mm */
 #define TICKS_PER_GEAR_REV     ((TICKS_PER_MOTOR_REV * GEAR_TEETH) / WORM_STARTS) /* 2520 cuentas por vuelta de engranaje */
 
@@ -66,21 +66,21 @@ typedef enum {
 #define SWEEP_PAUSE_MS         1000   /* 1 segundo de retardo antes de cambiar de sentido */
 #define SWEEP_DUTY             700    /* Fuerza de barrido en 700 (70% sobre 999) */
 
-/* --- IMPULSO DE ARRANQUE (KICK-START PARA VENCER FRICCIÓN ESTÁTICA) --- */
+/* --- IMPULSO DE ARRANQUE (KICK-START PARA VENCER FRICCION ESTATICA) --- */
 #define KICK_DUTY              950    /* Golpe inicial de fuerza (95% sobre 999) al salir del reposo */
-#define KICK_TIME_MS           35     /* Duración del empujón inicial en milisegundos */
+#define KICK_TIME_MS           35     /* Duracion del empujon inicial en milisegundos */
 
-/* Límite de seguridad amplio para permitir las 84 vueltas de motor (5040 ticks) con holgura */
+/* Limite de ticks para permitir las 84 vueltas de motor (5040 ticks) con holgura */
 #define MAX_ENCODER_LIMIT      25000
 
-/* --- PARÁMETROS DEL CONTROLADOR DE POSICIÓN (IR A HOME) --- */
+/* --- PARAMETROS DEL CONTROLADOR DE POSICION (IR A HOME) --- */
 #define POS_DEADBAND_TICKS     5      /* Tolerancia de llegada en pulsos */
 #define HOMED_TOLERANCE_TICKS  ((8 * TICKS_PER_GEAR_REV) / 360) /* Zona Home: +-8 grados = +-56 ticks (contempla inercia) */
-#define POS_MIN_DUTY           550    /* Fuerza mínima para vencer fricción en retorno */
-#define POS_MAX_DUTY           700    /* Velocidad máxima de retorno */
-#define GO_HOME_TIMEOUT_MS     30000  /* 30 s de tiempo máximo para desandar hasta 2 vueltas de engranaje */
+#define POS_MIN_DUTY           550    /* Fuerza minima para vencer friccion en retorno */
+#define POS_MAX_DUTY           700    /* Velocidad maxima de retorno */
+#define GO_HOME_TIMEOUT_MS     30000  /* 30 s de tiempo maximo para volver a Home */
 #define MOTOR_STALL_TIMEOUT_MS 1200   /* 1.2 s sin pulsos de encoder con motor energizado -> Falla motor / L298N apagado */
-#define MOTOR_STALL_MIN_TICKS  4      /* Avance mínimo en ticks para confirmar que el motor responde */
+#define MOTOR_STALL_MIN_TICKS  4      /* Avance minimo en ticks para confirmar que el motor responde */
 
 #define ENCODER_POLARITY       1      /* Polaridad de encoder */
 /* USER CODE END PD */
@@ -93,25 +93,25 @@ typedef enum {
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-/* Estado del sistema y variables de posición */
+/* Estado del sistema y variables de posicion */
 volatile SystemState_t current_state = STATE_HOMED;
-volatile int32_t total_encoder_ticks = 0;   /* Posición acumulada en 32 bits (anti-desbordamiento) */
-volatile int16_t last_timer_cnt = 0;        /* Última lectura directa de CNT (16 bits) */
-volatile int32_t home_position = 0;         /* Posición de referencia fijada */
-volatile int32_t target_position = 0;       /* Posición objetivo para Ir a Home o giros por ángulo */
+volatile int32_t total_encoder_ticks = 0;   /* Posicion acumulada en 32 bits */
+volatile int16_t last_timer_cnt = 0;        /* Ultima lectura directa de CNT (16 bits) */
+volatile int32_t home_position = 0;         /* Posicion de referencia fijada */
+volatile int32_t target_position = 0;       /* Posicion objetivo para Ir a Home o giros por angulo */
 
 /* Variables para el barrido oscilante por PPR */
 volatile ScanPhase_t scan_phase = SCAN_PHASE_FORWARD;
-int32_t leg_start_ticks = 0;                /* Posición de inicio de cada tramo de giro */
+int32_t leg_start_ticks = 0;                /* Posicion de inicio de cada tramo de giro */
 uint32_t scan_pause_timer = 0;              /* Temporizador para el delay de 1s */
 
-/* Variables para control inteligente y anti-embalamiento de Go to Home */
-volatile int8_t motor_dir_sign = 1;         /* Signo de dirección de motor (+1 o -1 auto-calibrado) */
+/* Variables para inversion de sentido y timeout en Go to Home */
+volatile int8_t motor_dir_sign = 1;         /* Signo de direccion de motor (+1 o -1) */
 int32_t go_home_initial_error = 0;
 uint32_t go_home_start_time = 0;
 
 /* Seguimiento del sentido actual del motor para el impulso de arranque (kick-start) */
-int8_t current_motor_dir = 0;               /* 0: frenado, 1: adelante, -1: atrás */
+int8_t current_motor_dir = 0;               /* 0: frenado, 1: adelante, -1: atras */
 uint8_t kick_active = 0;                    /* 1 mientras dura el pulso de arranque de 35 ms */
 uint32_t kick_start_tick = 0;               /* Marca de tiempo de inicio del kick-start */
 uint16_t target_pwm_duty = 0;               /* Ciclo util nominal al que baja tras el kick-start */
@@ -123,14 +123,14 @@ volatile uint8_t can_btn3_flag = 0;
 volatile uint8_t can_btn4_flag = 0;
 volatile int32_t can_step_ticks = 0;        /* Pasos relativos solicitados por CAN (+ o - ticks) */
 
-/* Temporizadores para FSM (5 ms), telemetria CAN (50 ms), destello Home y falla */
+/* Temporizadores para FSM (5 ms), telemetria CAN (50 ms), blink Home y falla */
 uint32_t last_fsm_tick = 0;
 uint32_t last_telemetry_tick = 0;
 uint32_t error_blink_tick = 0;
 uint8_t home_blink_active = 0;
 uint32_t home_blink_tick = 0;
-int32_t stall_ref_ticks = 0;                /* Posición de referencia para detección de motor desconectado / L298N sin energía */
-uint32_t stall_timer_tick = 0;              /* Marca de tiempo de último avance de encoder con motor activo */
+int32_t stall_ref_ticks = 0;                /* Posicion de referencia para deteccion de motor desconectado / L298N sin energia */
+uint32_t stall_timer_tick = 0;              /* Marca de tiempo de ultimo avance de encoder con motor activo */
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -153,8 +153,8 @@ void Slave_RunPositionControl(int32_t step_req, uint8_t btn2, uint8_t btn3);
 /* USER CODE BEGIN 0 */
 /**
   * @brief  Ajusta el sentido de giro y la velocidad del motor DC con el puente H L298N.
-  *         Incluye un "empujón" (kick-start) automático al arrancar desde reposo o cambiar
-  *         de sentido para vencer la fricción estática del motor.
+  *         Incluye un "empujon" (kick-start) al arrancar desde reposo o cambiar
+  *         de sentido para vencer la friccion estatica del motor.
   * @param  speed: Valor entre -999 y +999
   */
 void Motor_SetSpeed(int16_t speed)
@@ -168,7 +168,7 @@ void Motor_SetSpeed(int16_t speed)
     HAL_GPIO_WritePin(GPIOA, Escribe_IN2_Pin, GPIO_PIN_RESET);
     target_pwm_duty = (uint16_t)speed;
 
-    /* Si estaba detenido o girando al revés, iniciar golpe de arranque */
+    /* Si estaba detenido o girando al reves, iniciar golpe de arranque */
     if (current_motor_dir != 1)
     {
       current_motor_dir = 1;
@@ -197,7 +197,7 @@ void Motor_SetSpeed(int16_t speed)
     HAL_GPIO_WritePin(GPIOA, Escribe_IN2_Pin, GPIO_PIN_SET);
     target_pwm_duty = (uint16_t)(-speed);
 
-    /* Si estaba detenido o girando al revés, iniciar golpe de arranque */
+    /* Si estaba detenido o girando al reves, iniciar golpe de arranque */
     if (current_motor_dir != -1)
     {
       current_motor_dir = -1;
@@ -256,7 +256,7 @@ void Encoder_Update(void)
 }
 
 /**
-  * @brief  Configuración del filtro CAN para recibir todos los mensajes en FIFO0
+  * @brief  Configuracion del filtro CAN para recibir todos los mensajes en FIFO0
   */
 void CAN_Filter_Config(void)
 {
@@ -280,7 +280,7 @@ void CAN_Filter_Config(void)
 }
 
 /**
-  * @brief  Procesa todos los mensajes pendientes en el FIFO0 de recepción CAN
+  * @brief  Procesa todos los mensajes pendientes en el FIFO0 de recepcion CAN
   *         - StdId 0x010: Comandos de botones BTN1..BTN4 (0x01..0x04)
   *         - StdId 0x020: Comando de encendido/apagado de LED_REFLEJO en PB0 (0x01 / 0x00)
   */
@@ -295,7 +295,7 @@ void CAN_ProcessRxMessages(void)
     {
       if (rxHeader.DLC >= 1)
       {
-        /* 1. Comandos de los botones de motor/homing y giros por ángulo (ID = 0x010) */
+        /* Comandos de los botones de motor/homing y giros por angulo (ID = 0x010) */
         if (rxHeader.StdId == 0x010)
         {
           switch (rxData[0])
@@ -304,12 +304,12 @@ void CAN_ProcessRxMessages(void)
             case 0x02: can_btn2_flag = 1; break;
             case 0x03: can_btn3_flag = 1; break;
             case 0x04: can_btn4_flag = 1; break;
-            /* Giros relativos en sentido positivo (+30°, +90°, +180°, +360°) */
+            /* Giros relativos en sentido positivo (+30, +90, +180, +360 grados) */
             case 0x05: can_step_ticks =  (30  * TICKS_PER_GEAR_REV) / 360; break; /* +210 ticks */
             case 0x06: can_step_ticks =  (90  * TICKS_PER_GEAR_REV) / 360; break; /* +630 ticks */
             case 0x07: can_step_ticks =  (180 * TICKS_PER_GEAR_REV) / 360; break; /* +1260 ticks */
             case 0x08: can_step_ticks =  (360 * TICKS_PER_GEAR_REV) / 360; break; /* +2520 ticks */
-            /* Giros relativos en sentido negativo (-30°, -90°, -180°, -360°) */
+            /* Giros relativos en sentido negativo (-30, -90, -180, -360 grados) */
             case 0x09: can_step_ticks = -(30  * TICKS_PER_GEAR_REV) / 360; break; /* -210 ticks */
             case 0x0A: can_step_ticks = -(90  * TICKS_PER_GEAR_REV) / 360; break; /* -630 ticks */
             case 0x0B: can_step_ticks = -(180 * TICKS_PER_GEAR_REV) / 360; break; /* -1260 ticks */
@@ -317,7 +317,7 @@ void CAN_ProcessRxMessages(void)
             default: break;
           }
         }
-        /* 2. Comandos del LED en PB0 (ID = 0x020) */
+        /* Comandos del LED en PB0 (ID = 0x020) */
         else if (rxHeader.StdId == 0x020)
         {
           if (rxData[0] == 0x01)
@@ -339,7 +339,7 @@ void CAN_ProcessRxMessages(void)
 }
 
 /**
-  * @brief  Callback de interrupción al recibir un frame CAN en el FIFO0
+  * @brief  Callback de interrupcion al recibir un frame CAN en el FIFO0
   */
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcanInstance)
 {
@@ -379,7 +379,7 @@ void CAN_SendTelemetry(void)
 }
 
 /**
-  * @brief  Ejecuta las acciones de entrada (Entry) y cambia formalmente de estado en la FSM de Placa B
+  * @brief  Cambia de estado en la FSM de Placa B y actualiza salidas
   */
 void Slave_EnterState(SystemState_t next_state)
 {
@@ -422,7 +422,7 @@ void Slave_EnterState(SystemState_t next_state)
 }
 
 /**
-  * @brief  Frena el motor y selecciona automaticamente STATE_HOMED (si esta dentro de +-5 grados) o STATE_IDLE
+  * @brief  Frena el motor y pasa a STATE_HOMED (si esta dentro de +-8 grados) o STATE_IDLE
   */
 void Slave_TransitionToRest(void)
 {
@@ -450,14 +450,14 @@ void Slave_CalibrateHome(void)
 
   Slave_EnterState(STATE_HOMED);
 
-  /* Iniciar destello de 120 ms en PC13 para confirmar calibracion Home */
+  /* Iniciar blink de 120 ms en PC13 para confirmar calibracion Home */
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
   home_blink_active = 1;
   home_blink_tick = HAL_GetTick();
 }
 
 /**
-  * @brief  Inicia un movimiento cerrado hacia new_target en modo STATE_HOMING o STATE_POSITIONING
+  * @brief  Inicia un movimiento hacia new_target en STATE_HOMING o STATE_POSITIONING
   */
 void Slave_StartMoveToTarget(int32_t new_target, SystemState_t move_state)
 {
@@ -507,31 +507,31 @@ void Slave_RunPositionControl(int32_t step_req, uint8_t btn2, uint8_t btn3)
   int32_t error = target_position - total_encoder_ticks;
   int32_t abs_err = abs(error);
 
-  /* 1. Verificacion de llegada dentro de la banda muerta */
+  /* Llegada dentro de la banda muerta */
   if (abs_err <= POS_DEADBAND_TICKS)
   {
     Slave_TransitionToRest();
     return;
   }
 
-  /* 2. Deteccion y auto-correccion de sentido invertido (anti-embalamiento) */
+  /* Si el error aumenta respecto al inicial, invertir sentido de giro */
   if (abs_err > (go_home_initial_error + 30))
   {
     motor_dir_sign = -motor_dir_sign;
     go_home_initial_error = abs_err;
   }
 
-  /* 3. Timeout de seguridad -> transicion formal a STATE_ERROR_LIMIT */
+  /* Timeout de seguridad -> pasar a STATE_ERROR_LIMIT */
   if ((HAL_GetTick() - go_home_start_time) > GO_HOME_TIMEOUT_MS)
   {
     Slave_EnterState(STATE_ERROR_LIMIT);
     return;
   }
 
-  /* 4. Velocidad proporcional escalonada */
+  /* Velocidad proporcional escalonada */
   int16_t speed = (abs_err > 40) ? POS_MAX_DUTY : POS_MIN_DUTY;
 
-  /* 5. Comandar motor con correccion de signo */
+  /* Comandar motor con correccion de signo */
   if (error > 0)
   {
     Motor_SetSpeed(motor_dir_sign * speed);
@@ -582,7 +582,7 @@ int main(void)
   /* Iniciar lectura de Encoder en TIM2 (PA0 y PA1) */
   HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
 
-  /* Iniciar periférico CAN y activar interrupciones de recepción */
+  /* Iniciar periferico CAN y activar interrupciones de recepcion */
   CAN_Filter_Config();
   if (HAL_CAN_Start(&hcan) != HAL_OK)
   {
@@ -597,7 +597,7 @@ int main(void)
   Motor_SetSpeed(0);
   HAL_GPIO_WritePin(LED_REFLEJO_GPIO_Port, LED_REFLEJO_Pin, GPIO_PIN_RESET);
 
-  /* Resetear contadores de posición y variables de referencia */
+  /* Resetear contadores de posicion y variables de referencia */
   __HAL_TIM_SET_COUNTER(&htim2, 0);
   last_timer_cnt = 0;
   total_encoder_ticks = 0;
@@ -612,30 +612,30 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* 0. Tareas de tiempo real sin retardo: Recepción CAN, Conteo de Encoder y Fin de Kick-Start */
+    /* Tareas continuas: Recepcion CAN, Conteo de Encoder y Fin de Kick-Start */
     CAN_ProcessRxMessages();
     Encoder_Update();
     Motor_ServiceKickStart();
 
-    /* 1. Ejecución periódica de la Máquina de Estados cada 5 ms (200 Hz) */
+    /* Ejecucion periodica de la Maquina de Estados cada 5 ms (200 Hz) */
     if ((HAL_GetTick() - last_fsm_tick) >= 5)
     {
       last_fsm_tick = HAL_GetTick();
 
-      /* 2. Capturar los eventos de BTN1..BTN4 y pasos angulares recibidos por CAN desde BP_A_Master_F */
+      /* Capturar eventos de BTN1..BTN4 y pasos angulares recibidos por CAN desde BP_A_Master_F */
     uint8_t btn1 = can_btn1_flag; can_btn1_flag = 0;
     uint8_t btn2 = can_btn2_flag; can_btn2_flag = 0;
     uint8_t btn3 = can_btn3_flag; can_btn3_flag = 0;
     uint8_t btn4 = can_btn4_flag; can_btn4_flag = 0;
     int32_t step_req = can_step_ticks; can_step_ticks = 0;
 
-    /* 3. PARADA DE EMERGENCIA / STOP (BTN4 tiene prioridad global sobre cualquier estado) */
+    /* PARADA DE EMERGENCIA / STOP (BTN4 tiene prioridad sobre cualquier estado) */
     if (btn4)
     {
       Slave_TransitionToRest();
     }
 
-    /* 4. VERIFICACIÓN DE LÍMITE MECÁNICO Y DETECCIÓN DE MOTOR DESCONECTADO / L298N SIN ENERGÍA */
+    /* VERIFICACION DE LIMITE MECANICO Y DETECCION DE MOTOR DESCONECTADO / L298N SIN ENERGIA */
     if (current_state == STATE_SCANNING ||
         current_state == STATE_HOMING   ||
         current_state == STATE_POSITIONING)
@@ -646,7 +646,7 @@ int main(void)
       }
       else if (current_motor_dir != 0)
       {
-        /* Si el puente H está comandando giro pero el encoder no avanza en 1.2 s -> Falla de motor */
+        /* Si el puente H esta comandando giro pero el encoder no avanza en 1.2 s -> Falla de motor */
         if (abs(total_encoder_ticks - stall_ref_ticks) >= MOTOR_STALL_MIN_TICKS)
         {
           stall_ref_ticks = total_encoder_ticks;
@@ -665,7 +665,7 @@ int main(void)
       }
     }
 
-    /* 5. MÁQUINA DE ESTADOS FORMAL DE MOVIMIENTO (FASE C) */
+    /* MAQUINA DE ESTADOS DE MOVIMIENTO */
     switch (current_state)
     {
       case STATE_IDLE:
@@ -684,7 +684,7 @@ int main(void)
           HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET); /* LED PC13 apagado en reposo */
         }
 
-        /* Sincronizar estado de reposo según si el eje está dentro de ±8° (±56 ticks) de Home */
+        /* Sincronizar estado de reposo segun si el eje esta dentro de +-8 grados (+-56 ticks) de Home */
         if (abs(total_encoder_ticks - home_position) <= HOMED_TOLERANCE_TICKS)
         {
           current_state = STATE_HOMED;
@@ -716,7 +716,7 @@ int main(void)
       case STATE_SCANNING:
         HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET); /* LED PC13 encendido mientras escanea */
 
-        /* Sub-máquina de estados de barrido por vueltas (PPR) */
+        /* Sub-maquina de estados de barrido por vueltas (PPR) */
         switch (scan_phase)
         {
           case SCAN_PHASE_FORWARD:
@@ -808,7 +808,7 @@ int main(void)
       }
     }
 
-    /* 6. Transmitir telemetria de posicion y estado hacia BP_A (cada 50 ms / 20 Hz) */
+    /* Transmitir telemetria de posicion y estado hacia BP_A (cada 50 ms / 20 Hz) */
     if ((HAL_GetTick() - last_telemetry_tick) >= 50)
     {
       last_telemetry_tick = HAL_GetTick();

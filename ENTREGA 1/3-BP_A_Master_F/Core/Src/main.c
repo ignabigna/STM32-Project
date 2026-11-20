@@ -101,19 +101,19 @@ volatile OperatingMode_t system_mode = MODE_LOCAL;      /* 0 = Local, 1 = Remoto
 volatile uint8_t remote_cmd = 0;
 volatile OperatingMode_t last_system_mode = MODE_LOCAL; /* Detector de cambio desde Live Expressions */
 
-/* --- TELEMETRIA DE POSICION Y ESTADO DESDE PLACA B (FASE B) --- */
+/* --- TELEMETRIA DE POSICION Y ESTADO DESDE PLACA B --- */
 volatile int32_t live_position = 0;       /* Posicion real del engranaje en grados (360 grados = 2520 ticks) */
 volatile int32_t live_position_ticks = 0; /* Posicion cruda en pulsos de encoder recibidos por CAN */
 volatile uint8_t live_motor_state = 0;    /* Estado del motor: 0=IDLE, 1=SCANNING, 2=HOMED, 3=HOMING, 4=ERROR, 5=POSITIONING */
 volatile uint32_t telemetry_counter = 0;  /* Contador de paquetes de telemetria recibidos */
 
-/* --- MAQUINA DE ESTADOS DE SUPERVISION (FASE C) --- */
+/* --- MAQUINA DE ESTADOS DE SUPERVISION --- */
 volatile MasterState_t master_state = MASTER_INIT; /* 0=INIT, 1=LOCAL, 2=REMOTE, 3=CAN_FAULT, 4=SLAVE_ERROR */
 volatile uint32_t last_rx_telemetry_tick = 0;      /* Marca de tiempo (ms) del ultimo paquete 0x030 recibido */
 uint32_t fault_blink_tick = 0;                     /* Temporizador para blink de falla en PC13 */
 uint32_t last_fsm_tick = 0;                        /* Temporizador para paso de 5 ms de la FSM */
-uint8_t init_blink_steps = 0;                      /* Pasos restantes del destello inicial */
-uint32_t init_blink_tick = 0;                      /* Temporizador del destello inicial */
+uint8_t init_blink_steps = 0;                      /* Pasos restantes del blink inicial */
+uint32_t init_blink_tick = 0;                      /* Temporizador del blink inicial */
 uint8_t ack_blink_steps = 0;                       /* Pasos restantes de blink ante falta de ACK CAN */
 uint32_t ack_blink_tick = 0;                       /* Temporizador para blink de ACK CAN */
 /* USER CODE END PV */
@@ -135,10 +135,10 @@ void Master_PollModeSelection(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 /**
-  * @brief  Envía un comando de 1 byte por el bus CAN y espera confirmación (ACK)
-  * @param  stdId: Identificador estándar CAN (0x010 = Motor/Botones 1..4, 0x020 = LED PB0)
+  * @brief  Envia un comando de 1 byte por el bus CAN y espera confirmacion (ACK)
+  * @param  stdId: Identificador estandar CAN (0x010 = Motor/Botones 1..4, 0x020 = LED PB0)
   * @param  dataByte: Dato de 1 byte a transmitir
-  * @retval 1 si el nodo esclavo respondió ACK, 0 si hubo timeout/error
+  * @retval 1 si el nodo esclavo respondio ACK, 0 si hubo timeout/error
   */
 uint8_t CAN_SendMessage(uint32_t stdId, uint8_t dataByte)
 {
@@ -166,7 +166,7 @@ uint8_t CAN_SendMessage(uint32_t stdId, uint8_t dataByte)
     return 0;
   }
 
-  /* Espera 25 ms a que la Blue Pill B confirme recepción (ACK) */
+  /* Espera 25 ms a que la Blue Pill B confirme recepcion (ACK) */
   uint32_t t0 = HAL_GetTick();
   while (HAL_CAN_IsTxMessagePending(&hcan, txMailbox))
   {
@@ -181,7 +181,7 @@ uint8_t CAN_SendMessage(uint32_t stdId, uint8_t dataByte)
 }
 
 /**
-  * @brief  Restaura el estado del LED integrado PC13 (y titila rápido si faltó el ACK)
+  * @brief  Restaura el estado del LED integrado PC13 (y hace blink rapido si falto el ACK)
   */
 void Indicate_CAN_Result(uint8_t ack_ok)
 {
@@ -209,7 +209,7 @@ void Indicate_CAN_Result(uint8_t ack_ok)
 }
 
 /**
-  * @brief  Actualiza el destello rapido de PC13 ante error de ACK CAN
+  * @brief  Actualiza el blink rapido de PC13 ante error de ACK CAN
   */
 void Master_UpdateAckBlink(void)
 {
@@ -318,7 +318,7 @@ void CAN_ProcessRxMessages(void)
 }
 
 /**
-  * @brief  Callback,interrupcion al recibir un frame CAN en el FIFO0
+  * @brief  Callback de interrupcion al recibir un frame CAN en FIFO0
   */
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcanInstance)
 {
@@ -327,7 +327,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcanInstance)
 }
 
 /**
-  * @brief  Acciones de entrada (Entry) y actualiza el estado formal del Master (Placa A)
+  * @brief  Cambia el estado del Master (Placa A) y actualiza el LED
   */
 void Master_EnterState(MasterState_t next_state)
 {
@@ -379,13 +379,13 @@ void Master_SyncModeLed(OperatingMode_t mode)
   */
 void Master_PollModeSelection(void)
 {
-  /* 1. Cambio desde la PC (HMI Web / Live Expressions) */
+  /* Cambio desde la PC (HMI Web / Live Expressions) */
   if (system_mode != last_system_mode)
   {
     Master_SyncModeLed(system_mode);
   }
 
-  /* 2. Pulsador fisico BTN5 (PA10 o PB10): MODO LOCAL - LED PB0 y PC13 APAGADOS */
+  /* Pulsador fisico BTN5 (PA10 o PB10): MODO LOCAL - LED PB0 y PC13 APAGADOS */
   uint8_t b5_pa = Button_Edge_Pressed(BTN5_GPIO_Port, BTN5_Pin, &btn5_pa_last_level, &btn5_pa_was_pressed, &btn5_pa_debounce_time);
   uint8_t b5_pb = Button_Edge_Pressed(GPIOB, GPIO_PIN_10, &btn5_pb_last_level, &btn5_pb_was_pressed, &btn5_pb_debounce_time);
   if (b5_pa || b5_pb)
@@ -393,7 +393,7 @@ void Master_PollModeSelection(void)
     Master_SyncModeLed(MODE_LOCAL);
   }
 
-  /* 3. Pulsador fisico BTN6 (PA11 o PB11): MODO REMOTO -LED PB0 y PC13 ENCENDIDOS */
+  /* Pulsador fisico BTN6 (PA11 o PB11): MODO REMOTO - LED PB0 y PC13 ENCENDIDOS */
   uint8_t b6_pa = Button_Edge_Pressed(BTN6_GPIO_Port, BTN6_Pin, &btn6_pa_last_level, &btn6_pa_was_pressed, &btn6_pa_debounce_time);
   uint8_t b6_pb = Button_Edge_Pressed(GPIOB, GPIO_PIN_11, &btn6_pb_last_level, &btn6_pb_was_pressed, &btn6_pb_debounce_time);
   if (b6_pa || b6_pb)
@@ -434,7 +434,7 @@ int main(void)
   MX_GPIO_Init();
   MX_CAN_Init();
   /* USER CODE BEGIN 2 */
-  /* 1. Iniciar el periferico CAN con filtro e interrupcion de recepcion FIFO0 */
+  /* Iniciar el periferico CAN con filtro e interrupcion de recepcion FIFO0 */
   CAN_Filter_Config();
   if (HAL_CAN_Start(&hcan) != HAL_OK)
   {
@@ -445,9 +445,9 @@ int main(void)
     Error_Handler();
   }
 
-  /* 2. Preparar secuencia de 3 blinks iniciales en estado MASTER_INIT */
+  /* Preparar secuencia de 3 blinks iniciales en estado MASTER_INIT */
   current_led_state = 0;
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET); /* Primer destello ON */
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET); /* Primer blink ON */
   init_blink_steps = 5;                                  /* 5 cambios restantes de 100 ms (3 blinks completos) */
   init_blink_tick = HAL_GetTick();
   last_rx_telemetry_tick = HAL_GetTick();
@@ -459,28 +459,28 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* 0. Procesar mensajes CAN pendientes en FIFO0 sin retardo (polling continuo + interrupcion) */
+    /* Procesar mensajes CAN pendientes en FIFO0 */
     CAN_ProcessRxMessages();
 
-    /* 1. Ejecucion periodica cada 5 ms (200 Hz) */
+    /* Ejecucion periodica cada 5 ms (200 Hz) */
     if ((HAL_GetTick() - last_fsm_tick) >= 5)
     {
       last_fsm_tick = HAL_GetTick();
 
-      /* 1.1 Actualizar destello de error ACK (si estuviera activo) */
+      /* Actualizar blink de error ACK (si estuviera activo) */
       Master_UpdateAckBlink();
 
-      /* 1.2 Evaluar selectores de modo (BTN5 Local, BTN6 Remoto y variable system_mode desde HMI/IDE) */
+      /* Evaluar selectores de modo (BTN5 Local, BTN6 Remoto y system_mode desde HMI/IDE) */
       if (master_state != MASTER_INIT)
       {
         Master_PollModeSelection();
       }
 
-      /* 2. MAQUINA DE ESTADOS FORMAL DE SUPERVISION */
+      /* MAQUINA DE ESTADOS DE SUPERVISION */
       switch (master_state)
       {
         case MASTER_INIT:
-          /* Secuencia de 3 destellos iniciales (100 ms c/u) */
+          /* Secuencia de 3 blinks iniciales (100 ms c/u) */
           if ((HAL_GetTick() - init_blink_tick) >= 100)
           {
             init_blink_tick = HAL_GetTick();
@@ -498,19 +498,19 @@ int main(void)
           break;
 
       case MASTER_LOCAL:
-        /* 2.1 Supervision de enlace CAN (watchdog de 500 ms sobre telemetria 0x030) */
+        /* Supervision de enlace CAN (watchdog de 500 ms sobre telemetria 0x030) */
         if ((HAL_GetTick() - last_rx_telemetry_tick) > CAN_TELEMETRY_TIMEOUT_MS)
         {
           Master_EnterState(MASTER_CAN_FAULT);
           break;
         }
-        /* 2.2 Supervision de estado de falla en Placa B */
+        /* Supervision de estado de falla en Placa B */
         if (live_motor_state == 4)
         {
           Master_EnterState(MASTER_SLAVE_ERROR);
           break;
         }
-        /* 2.3 Si cambio el modo a Remoto, transicionar a MASTER_REMOTE */
+        /* Si cambio el modo a Remoto, pasar a MASTER_REMOTE */
         if (system_mode == MODE_REMOTE)
         {
           Master_EnterState(MASTER_REMOTE);
@@ -554,19 +554,19 @@ int main(void)
         break;
 
       case MASTER_REMOTE:
-        /* 2.1 Supervision de enlace CAN (watchdog de 500 ms sobre telemetria 0x030) */
+        /* Supervision de enlace CAN (watchdog de 500 ms sobre telemetria 0x030) */
         if ((HAL_GetTick() - last_rx_telemetry_tick) > CAN_TELEMETRY_TIMEOUT_MS)
         {
           Master_EnterState(MASTER_CAN_FAULT);
           break;
         }
-        /* 2.2 Supervision de estado de falla en Placa B */
+        /* Supervision de estado de falla en Placa B */
         if (live_motor_state == 4)
         {
           Master_EnterState(MASTER_SLAVE_ERROR);
           break;
         }
-        /* 2.3 Si cambio el modo a Local, transicionar a MASTER_LOCAL */
+        /* Si cambio el modo a Local, pasar a MASTER_LOCAL */
         if (system_mode == MODE_LOCAL)
         {
           Master_EnterState(MASTER_LOCAL);
@@ -574,10 +574,10 @@ int main(void)
         }
 
         /* --- MODO REMOTO: COMANDOS PC / HMI ---
-         *   1: Barrido (BTN1)        5: Giro +30° (+210 ticks)     9: Giro -30° (-210 ticks)
-         *   2: Fijar Home (BTN2)     6: Giro +90° (+630 ticks)    10: Giro -90° (-630 ticks)
-         *   3: Ir a Home (BTN3)      7: Giro +180° (+1260 ticks)  11: Giro -180° (-1260 ticks)
-         *   4: STOP (BTN4)           8: Giro +360° (+2520 ticks)  12: Giro -360° (-2520 ticks)
+         *   1: Barrido (BTN1)        5: Giro +30 grados (+210 ticks)     9: Giro -30 grados (-210 ticks)
+         *   2: Fijar Home (BTN2)     6: Giro +90 grados (+630 ticks)    10: Giro -90 grados (-630 ticks)
+         *   3: Ir a Home (BTN3)      7: Giro +180 grados (+1260 ticks)  11: Giro -180 grados (-1260 ticks)
+         *   4: STOP (BTN4)           8: Giro +360 grados (+2520 ticks)  12: Giro -360 grados (-2520 ticks)
          */
         if (remote_cmd >= 1 && remote_cmd <= 12)
         {
@@ -591,7 +591,7 @@ int main(void)
           remote_cmd = 0;
         }
 
-        /* Seguridad de banco: el boton fisico BTN4 (Stop) siempre frena  */
+        /* El boton fisico BTN4 (Stop) siempre frena */
         if (Button_Edge_Pressed(BTN4_GPIO_Port, BTN4_Pin, &btn4_last_level, &btn4_was_pressed, &btn4_debounce_time))
         {
           uint8_t ok = CAN_SendMessage(0x010, 0x04);
@@ -606,14 +606,14 @@ int main(void)
           remote_cmd = 0;
         }
 
-        /* Blink rapido en PC13 indicando pérdida de enlace CAN */
+        /* Blink rapido en PC13 indicando perdida de enlace CAN */
         if ((HAL_GetTick() - fault_blink_tick) >= 120)
         {
           fault_blink_tick = HAL_GetTick();
           HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
         }
 
-        /* Recuperacion automatica apenas se reanude la recepcion de telemetria 0x030 */
+        /* Recuperacion automatica cuando vuelve la telemetria 0x030 */
         if ((HAL_GetTick() - last_rx_telemetry_tick) <= CAN_TELEMETRY_TIMEOUT_MS)
         {
           CAN_SendMessage(0x020, current_led_state);
